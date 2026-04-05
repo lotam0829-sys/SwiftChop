@@ -14,6 +14,8 @@ export default function AboutScreen() {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: insets.bottom + 24, paddingTop: 16, paddingHorizontal: 16, alignItems: 'center' }}
     >
+      <Text style={styles.pageTitle}>About SwiftChop</Text>
+
       <View style={styles.logoWrap}>
         <MaterialIcons name="bolt" size={36} color="#FFF" />
       </View>
@@ -49,6 +51,7 @@ export default function AboutScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF' },
+  pageTitle: { fontSize: 24, fontWeight: '700', color: theme.textPrimary, marginBottom: 20, alignSelf: 'flex-start' },
   logoWrap: { width: 72, height: 72, borderRadius: 20, backgroundColor: theme.backgroundDark, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   appName: { fontSize: 32, fontWeight: '800', color: theme.textPrimary, marginBottom: 4 },
   tagline: { fontSize: 15, color: theme.textSecondary, marginBottom: 4 },

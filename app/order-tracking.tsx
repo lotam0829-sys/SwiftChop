@@ -7,8 +7,6 @@ import Animated, { useSharedValue, useAnimatedStyle, withTiming, withRepeat, wit
 import { theme } from '../constants/theme';
 import { useApp } from '../contexts/AppContext';
 
-// Statuses are driven STRICTLY by Shipday webhooks + restaurant actions
-// pending → confirmed (restaurant accepts) → preparing → on_the_way (Shipday pickup) → delivered (Shipday complete)
 const steps = [
   { key: 'pending', icon: 'hourglass-top', label: 'Order Placed', sub: 'Waiting for restaurant to accept' },
   { key: 'confirmed', icon: 'check-circle', label: 'Confirmed', sub: 'Restaurant accepted your order' },
@@ -29,7 +27,6 @@ export default function OrderTrackingScreen() {
 
   const statusIndex = steps.findIndex(s => s.key === order?.status);
 
-  // Animate steps sequentially
   useEffect(() => {
     let step = 0;
     const target = statusIndex >= 0 ? statusIndex : 0;
@@ -44,7 +41,6 @@ export default function OrderTrackingScreen() {
     return () => clearInterval(interval);
   }, [statusIndex]);
 
-  // Poll for order status updates (every 10s)
   useEffect(() => {
     if (!order || order.status === 'delivered' || order.status === 'cancelled') return;
 
@@ -59,7 +55,6 @@ export default function OrderTrackingScreen() {
     };
   }, [order?.status, orderId]);
 
-  // Pulse animation for current step
   const pulseScale = useSharedValue(1);
   useEffect(() => {
     pulseScale.value = withRepeat(
@@ -77,19 +72,12 @@ export default function OrderTrackingScreen() {
   const handleOpenTracking = useCallback(async () => {
     const url = order?.shipday_tracking_url;
     if (!url) return;
-
-    // Validate URL format before opening
     try {
       const isValid = url.startsWith('http://') || url.startsWith('https://');
-      if (!isValid) {
-        console.warn('Invalid tracking URL:', url);
-        return;
-      }
+      if (!isValid) return;
       const canOpen = await Linking.canOpenURL(url);
       if (canOpen) {
         await Linking.openURL(url);
-      } else {
-        console.warn('Cannot open tracking URL:', url);
       }
     } catch (err) {
       console.error('Failed to open tracking URL:', err);
@@ -100,7 +88,6 @@ export default function OrderTrackingScreen() {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Order not found</Text></View>;
   }
 
-  // Only show tracking link if it exists and is a valid HTTP URL
   const hasValidTrackingUrl = order.shipday_tracking_url
     && (order.shipday_tracking_url.startsWith('http://') || order.shipday_tracking_url.startsWith('https://'))
     && !order.shipday_tracking_url.includes('undefined')
@@ -135,16 +122,32 @@ export default function OrderTrackingScreen() {
           </Text>
         </View>
 
-        {/* Shipday Live Tracking Link - only if valid URL exists */}
+        {/* Tracking notification */}
+        <View style={styles.trackingNotice}>
+          <MaterialIcons name="notifications-active" size={20} color="#2563EB" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.trackingNoticeTitle}>Live Tracking Available</Text>
+            <Text style={styles.trackingNoticeText}>
+              A tracking link will be sent to your phone number and email once a rider is assigned. You can also track your order live using the button below.
+            </Text>
+          </View>
+        </View>
+
+        {/* Shipday Live Tracking Link */}
         {hasValidTrackingUrl ? (
           <Pressable onPress={handleOpenTracking} style={styles.trackingLinkBtn}>
             <MaterialIcons name="map" size={20} color="#FFF" />
             <Text style={styles.trackingLinkText}>Track Live on Map</Text>
             <MaterialIcons name="open-in-new" size={16} color="rgba(255,255,255,0.7)" />
           </Pressable>
-        ) : null}
+        ) : (
+          <View style={styles.trackingPending}>
+            <MaterialIcons name="hourglass-top" size={18} color={theme.textMuted} />
+            <Text style={styles.trackingPendingText}>Live tracking link will appear here once a rider is assigned to your order.</Text>
+          </View>
+        )}
 
-        {/* Carrier info - only when driver is actually assigned */}
+        {/* Carrier info */}
         {order.shipday_carrier_name ? (
           <View style={styles.carrierCard}>
             <View style={styles.carrierAvatar}>
@@ -197,14 +200,15 @@ export default function OrderTrackingScreen() {
           <View style={styles.infoRow}><MaterialIcons name="storefront" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.restaurant_name}</Text></View>
           <View style={styles.infoRow}><MaterialIcons name="location-on" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.delivery_address}</Text></View>
           <View style={styles.infoRow}><MaterialIcons name="receipt" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.order_number}</Text></View>
+          <View style={styles.infoRow}><MaterialIcons name="credit-card" size={18} color={theme.textMuted} /><Text style={styles.infoText}>Card Payment</Text></View>
           <View style={styles.divider} />
           {(order.order_items || []).map((item, idx) => (
-            <Text key={idx} style={styles.itemText}>{item.quantity}x {item.name} — ₦{(item.price * item.quantity).toLocaleString()}</Text>
+            <Text key={idx} style={styles.itemText}>{item.quantity}x {item.name} — {"\u20A6"}{(item.price * item.quantity).toLocaleString()}</Text>
           ))}
           <View style={styles.divider} />
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total paid</Text>
-            <Text style={styles.totalValue}>₦{order.total.toLocaleString()}</Text>
+            <Text style={styles.totalValue}>{"\u20A6"}{order.total.toLocaleString()}</Text>
           </View>
         </View>
 
@@ -225,8 +229,13 @@ const styles = StyleSheet.create({
   successIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   successTitle: { fontSize: 22, fontWeight: '700', color: theme.textPrimary },
   successSub: { fontSize: 14, color: theme.textSecondary, marginTop: 4, textAlign: 'center', paddingHorizontal: 24 },
+  trackingNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 16, borderRadius: 14, backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 12 },
+  trackingNoticeTitle: { fontSize: 14, fontWeight: '700', color: '#1E40AF', marginBottom: 4 },
+  trackingNoticeText: { fontSize: 13, color: '#6B7280', lineHeight: 19 },
   trackingLinkBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: theme.primary, paddingVertical: 14, borderRadius: 14, marginBottom: 16 },
   trackingLinkText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
+  trackingPending: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 14, backgroundColor: theme.backgroundSecondary, marginBottom: 16, borderWidth: 1, borderColor: theme.border },
+  trackingPendingText: { flex: 1, fontSize: 13, color: theme.textMuted, lineHeight: 19 },
   carrierCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.backgroundSecondary, borderRadius: 14, padding: 14, marginBottom: 16 },
   carrierAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
   carrierName: { fontSize: 15, fontWeight: '700', color: theme.textPrimary },

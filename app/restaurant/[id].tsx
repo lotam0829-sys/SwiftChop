@@ -63,7 +63,6 @@ export default function RestaurantDetailScreen() {
     return cat?.items || [];
   }, [categories, activeCategory]);
 
-  // Calculate distance and dynamic delivery time
   const distanceKm = useMemo(() => {
     if (!userLocation || !restaurant) return null;
     const rLat = (restaurant as any).latitude;
@@ -89,6 +88,13 @@ export default function RestaurantDetailScreen() {
   }, [distanceKm, restaurant]);
 
   const distanceLabel = distanceKm !== null ? (distanceKm < 1 ? `${(distanceKm * 1000).toFixed(0)}m` : `${distanceKm.toFixed(1)}km`) : null;
+
+  const getItemImage = (imageKey: string) => {
+    if (imageKey && imageKey.startsWith('http')) {
+      return { uri: imageKey };
+    }
+    return getImage(imageKey);
+  };
 
   if (loading) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' }}><ActivityIndicator size="large" color={theme.primary} /></View>;
@@ -146,7 +152,6 @@ export default function RestaurantDetailScreen() {
           ) : null}
         </View>
 
-        {/* Restaurant location */}
         {restaurant.address ? (
           <View style={styles.locationRow}>
             <MaterialIcons name="location-on" size={16} color={theme.textMuted} />
@@ -183,7 +188,7 @@ export default function RestaurantDetailScreen() {
                   <Text style={styles.menuItemPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
                 </View>
                 <View>
-                  <Image source={getImage(item.image_key)} style={styles.menuItemImage} contentFit="cover" />
+                  <Image source={getItemImage(item.image_key)} style={styles.menuItemImage} contentFit="cover" />
                   {item.is_available ? (
                     <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); addToCart(item, restaurant.id, restaurant.name); }} style={[styles.addBtnStyle, inCart ? styles.addBtnActive : null]}>
                       {inCart ? <Text style={styles.addBtnTextActive}>{inCart.quantity}</Text> : <MaterialIcons name="add" size={22} color="#FFF" />}

@@ -34,11 +34,12 @@ export default function EditProfileScreen() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 24, paddingTop: 16, paddingHorizontal: 16 }}
         keyboardShouldPersistTaps="handled"
       >
+        <Text style={styles.pageTitle}>Edit Profile</Text>
+
         <View style={styles.avatarSection}>
           <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>{username?.charAt(0)?.toUpperCase() || 'U'}</Text>
+            <Text style={styles.avatarText}>{username?.charAt(0)?.toUpperCase() || userProfile?.email?.charAt(0)?.toUpperCase() || 'U'}</Text>
           </View>
-          <Text style={styles.avatarHint}>Tap to change photo</Text>
         </View>
 
         <View style={styles.field}>
@@ -83,10 +84,10 @@ export default function EditProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF' },
+  pageTitle: { fontSize: 24, fontWeight: '700', color: theme.textPrimary, marginBottom: 20 },
   avatarSection: { alignItems: 'center', marginBottom: 28 },
   avatarCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   avatarText: { fontSize: 32, fontWeight: '700', color: '#FFF' },
-  avatarHint: { fontSize: 13, color: theme.primary, fontWeight: '600' },
   field: { marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '600', color: theme.textPrimary, marginBottom: 8 },
   inputWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, height: 52, backgroundColor: theme.backgroundSecondary },

@@ -20,26 +20,21 @@ function RootNavigator() {
     if (isLoading) return;
 
     const first = segments[0] as string;
-    // Auth screens that require no authentication — onboarding is NOT here
-    // because onboarding is for authenticated users completing their profile
     const isAuthScreen = ['welcome', 'login', 'signup'].includes(first);
     const isOnboarding = first === 'onboarding';
     const isPending = first === 'pending-approval';
 
-    // Not authenticated → go to welcome (unless already on an auth screen)
     if (!isAuthenticated && !isAuthScreen) {
       router.replace('/welcome');
       return;
     }
 
-    // On onboarding → let the user finish it (do NOT redirect away)
     if (isAuthenticated && isOnboarding) {
       return;
     }
 
-    // Authenticated but on a login/signup/welcome screen → route based on role
     if (isAuthenticated && isAuthScreen) {
-      if (!userProfile) return; // Wait for profile to load
+      if (!userProfile) return;
 
       if (userProfile.role === 'restaurant') {
         router.replace(userProfile.is_approved ? '/(restaurant)' : '/pending-approval');
@@ -49,7 +44,6 @@ function RootNavigator() {
       return;
     }
 
-    // Restaurant user got approved → redirect from pending to dashboard
     if (isAuthenticated && isPending && userProfile?.role === 'restaurant' && userProfile.is_approved) {
       router.replace('/(restaurant)');
     }
@@ -79,19 +73,19 @@ function RootNavigator() {
         <Stack.Screen name="order-tracking" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="onboarding" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="pending-approval" />
-        <Stack.Screen name="restaurant-account" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Account Settings', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
-        <Stack.Screen name="restaurant-support" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Help & Support', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
-        <Stack.Screen name="restaurant-hours" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Operating Hours', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
-        <Stack.Screen name="restaurant-delivery" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Delivery Settings', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
-        <Stack.Screen name="restaurant-photos" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Photos', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
-        <Stack.Screen name="restaurant-bank" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Bank Details', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
-        <Stack.Screen name="restaurant-notifications" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Notifications', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
-        <Stack.Screen name="edit-profile" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Edit Profile', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
-        <Stack.Screen name="delivery-addresses" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Delivery Addresses', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
-        <Stack.Screen name="payment-methods" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Payment Methods', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
-        <Stack.Screen name="notifications-settings" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Notifications', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
-        <Stack.Screen name="help-support" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Help & Support', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
-        <Stack.Screen name="about" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'About SwiftChop', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="restaurant-account" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-support" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-hours" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-delivery" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-photos" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-bank" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-notifications" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="edit-profile" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="delivery-addresses" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="payment-methods" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="notifications-settings" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="help-support" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="about" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
       </Stack>
     </>
   );
