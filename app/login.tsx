@@ -38,21 +38,8 @@ export default function LoginScreen() {
         const isNewUser = createdAt && (now.getTime() - createdAt.getTime()) < 120000; // created within 2 min
 
         if (isNewUser) {
-          // New user signed up via Google on the LOGIN page
-          // They need to go to signup to choose their role properly
-          showAlert(
-            'Welcome!',
-            'It looks like you do not have an account yet. Please sign up to set up your profile.',
-            [
-              {
-                text: 'Go to Sign Up',
-                onPress: async () => {
-                  await logout();
-                  router.replace({ pathname: '/signup', params: { role: userRole } });
-                },
-              },
-            ]
-          );
+          // New Google user → route to role-based onboarding
+          router.replace({ pathname: '/onboarding', params: { role: userRole } });
           setGoogleAuthPending(false);
           setSettingUp(false);
           return;

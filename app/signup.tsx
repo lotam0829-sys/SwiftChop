@@ -43,44 +43,25 @@ export default function SignupScreen() {
   const prevUserId = useRef<string | null>(null);
 
   // Handle Google Sign-In completion on signup page
-  // After Google creates/logs in the user, set their role immediately
+  // Route new users to onboarding, existing users refresh and let router handle
   useEffect(() => {
     if (!googleAuthPending || !user?.id || user.id === prevUserId.current) return;
 
     const handlePostGoogleAuth = async () => {
       try {
         setSettingUpProfile(true);
+        const createdAt = user.created_at ? new Date(user.created_at) : null;
+        const now = new Date();
+        const isNewUser = createdAt && (now.getTime() - createdAt.getTime()) < 120000;
 
-        // Set the correct role based on what was selected on the welcome page
-        const profileUpdates: Record<string, any> = { role: userRole };
-
-        if (userRole === 'restaurant') {
-          // For restaurant Google signups, we need to collect details
-          // Check if they already filled out restaurant details
-          if (restaurantName.trim()) {
-            profileUpdates.restaurant_name = restaurantName.trim();
-            profileUpdates.restaurant_address = restaurantAddress.trim();
-            profileUpdates.restaurant_cuisine = restaurantCuisine.trim();
-            profileUpdates.restaurant_description = restaurantDescription.trim() || `Welcome to ${restaurantName.trim()}`;
-            profileUpdates.phone = restaurantPhone.trim();
-            profileUpdates.restaurant_min_order = parseInt(minOrder) || 2000;
-            profileUpdates.restaurant_delivery_time = deliveryTime.trim() || '25-35 min';
-          }
-          profileUpdates.is_approved = false;
+        if (isNewUser) {
+          // New Google user → route to role-based onboarding
+          router.replace({ pathname: '/onboarding', params: { role: userRole } });
         } else {
-          profileUpdates.is_approved = true;
+          // Existing user → refresh and let router handle
+          await refreshProfile();
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
-
-        await updateUserProfile(user.id, profileUpdates);
-
-        // Create restaurant listing for restaurant owners
-        if (userRole === 'restaurant' && restaurantName.trim()) {
-          await createRestaurantForOwner(user.id, restaurantName.trim());
-        }
-
-        await refreshProfile();
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        // RootNavigator will route based on the updated role
       } catch (err) {
         console.error('Post-Google signup error:', err);
         showAlert('Error', 'Failed to set up your profile. Please try again.');

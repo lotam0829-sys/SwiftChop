@@ -21,7 +21,7 @@ function RootNavigator() {
     if (isLoading) return;
 
     const first = segments[0] as string;
-    const isAuthScreen = ['welcome', 'login', 'signup'].includes(first);
+    const isAuthScreen = ['welcome', 'login', 'signup', 'onboarding'].includes(first);
     const isPending = first === 'pending-approval';
 
     // Not authenticated → go to welcome (unless already on an auth screen)
@@ -70,6 +70,7 @@ function RootNavigator() {
         <Stack.Screen name="cart" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         <Stack.Screen name="checkout" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="order-tracking" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="onboarding" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="pending-approval" />
         <Stack.Screen name="restaurant-account" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Account Settings', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
         <Stack.Screen name="restaurant-support" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Help & Support', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
