@@ -13,6 +13,7 @@ import {
   dispatchToShipday, fetchOrderById,
 } from '../services/supabaseData';
 import { foodCategories } from '../services/mockData';
+import { config, calculateDeliveryFee } from '../constants/config';
 
 // Re-export for backward compatibility
 export { foodCategories };
@@ -51,7 +52,7 @@ interface AppContextType {
   // Customer orders
   customerOrders: DbOrder[];
   loadingOrders: boolean;
-  placeOrder: (deliveryAddress: string, note?: string, paymentMethod?: string) => Promise<DbOrder | null>;
+  placeOrder: (deliveryAddress: string, note?: string, paymentMethod?: string, deliveryFee?: number) => Promise<DbOrder | null>;
   refreshCustomerOrders: () => Promise<void>;
   refreshOrder: (orderId: string) => Promise<DbOrder | null>;
 
@@ -217,7 +218,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return data;
   };
 
-  const placeOrder = async (deliveryAddress: string, note?: string, paymentMethod?: string): Promise<DbOrder | null> => {
+  const placeOrder = async (deliveryAddress: string, note?: string, paymentMethod?: string, deliveryFee?: number): Promise<DbOrder | null> => {
     if (!user?.id || cart.length === 0) return null;
 
     const restaurantId = cart[0].restaurantId;
@@ -225,9 +226,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const restaurant = restaurants.find(r => r.id === restaurantId);
 
     const orderNumber = `SC-${Date.now().toString(36).toUpperCase()}`;
-    const deliveryFee = restaurant?.delivery_fee || 1500;
-    const serviceFee = 200;
-    const total = cartTotal + deliveryFee + serviceFee;
+    // Use the calculated delivery fee passed from checkout, or calculate a default
+    const finalDeliveryFee = deliveryFee ?? calculateDeliveryFee();
+    const serviceFee = config.serviceFee;
+    const total = cartTotal + finalDeliveryFee + serviceFee;
 
     // Start as 'pending' — status will only advance via Shipday webhooks or restaurant action
     const { data, error } = await createOrder(
@@ -238,7 +240,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         restaurant_name: restaurantName,
         restaurant_image_key: restaurant?.image_key || 'heroJollof',
         subtotal: cartTotal,
-        delivery_fee: deliveryFee,
+        delivery_fee: finalDeliveryFee,
         service_fee: serviceFee,
         total,
         status: 'pending',

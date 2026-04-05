@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
+import { config, calculateDeliveryFee, deliveryPricing } from '../constants/config';
 import { useApp } from '../contexts/AppContext';
 import PrimaryButton from '../components/ui/PrimaryButton';
 
@@ -18,8 +19,9 @@ export default function CheckoutScreen() {
   const [loading, setLoading] = useState(false);
   const [note, setNote] = useState('');
 
-  const deliveryFee = 1500;
-  const serviceFee = 200;
+  // Delivery fee is calculated from estimated distance (default estimate until Shipday returns actual)
+  const deliveryFee = calculateDeliveryFee();
+  const serviceFee = config.serviceFee;
   const total = cartTotal + deliveryFee + serviceFee;
 
   const payments = [
@@ -31,7 +33,7 @@ export default function CheckoutScreen() {
   const handlePlaceOrder = async () => {
     if (!address.trim()) return;
     setLoading(true);
-    const order = await placeOrder(address, note, paymentMethod);
+    const order = await placeOrder(address, note, paymentMethod, deliveryFee);
     setLoading(false);
     if (order) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -97,22 +99,36 @@ export default function CheckoutScreen() {
               <View key={ci.menuItem.id} style={styles.summaryItem}>
                 <Text style={styles.summaryItemQty}>{ci.quantity}x</Text>
                 <Text style={styles.summaryItemName} numberOfLines={1}>{ci.menuItem.name}</Text>
-                <Text style={styles.summaryItemPrice}>₦{(ci.menuItem.price * ci.quantity).toLocaleString()}</Text>
+                <Text style={styles.summaryItemPrice}>{config.currency}{(ci.menuItem.price * ci.quantity).toLocaleString()}</Text>
               </View>
             ))}
             <View style={styles.divider} />
-            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Subtotal</Text><Text style={styles.summaryValue}>₦{cartTotal.toLocaleString()}</Text></View>
-            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Delivery fee</Text><Text style={styles.summaryValue}>₦{deliveryFee.toLocaleString()}</Text></View>
-            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Service fee</Text><Text style={styles.summaryValue}>₦{serviceFee.toLocaleString()}</Text></View>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Subtotal</Text><Text style={styles.summaryValue}>{config.currency}{cartTotal.toLocaleString()}</Text></View>
+            <View style={styles.summaryRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={styles.summaryLabel}>Delivery fee</Text>
+                <Text style={styles.summaryHint}>(est. ~{deliveryPricing.defaultEstimateKm}km)</Text>
+              </View>
+              <Text style={styles.summaryValue}>{config.currency}{deliveryFee.toLocaleString()}</Text>
+            </View>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Service fee</Text><Text style={styles.summaryValue}>{config.currency}{serviceFee.toLocaleString()}</Text></View>
+          </View>
+
+          {/* Delivery fee note */}
+          <View style={styles.feeNote}>
+            <MaterialIcons name="info-outline" size={16} color={theme.textMuted} />
+            <Text style={styles.feeNoteText}>
+              Delivery fee is estimated based on distance. Final fee may adjust slightly after the rider is assigned.
+            </Text>
           </View>
         </ScrollView>
 
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>₦{total.toLocaleString()}</Text>
+            <Text style={styles.totalValue}>{config.currency}{total.toLocaleString()}</Text>
           </View>
-          <PrimaryButton label={loading ? 'Placing Order...' : `Place Order · ₦${total.toLocaleString()}`} onPress={handlePlaceOrder} loading={loading} variant="dark" />
+          <PrimaryButton label={loading ? 'Placing Order...' : `Place Order \u00B7 ${config.currency}${total.toLocaleString()}`} onPress={handlePlaceOrder} loading={loading} variant="dark" />
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -144,7 +160,10 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: theme.border, marginVertical: 12 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   summaryLabel: { fontSize: 14, color: theme.textSecondary },
+  summaryHint: { fontSize: 11, color: theme.textMuted },
   summaryValue: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
+  feeNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 16, marginBottom: 16 },
+  feeNoteText: { flex: 1, fontSize: 12, color: theme.textMuted, lineHeight: 17 },
   bottomBar: { paddingHorizontal: 16, paddingTop: 14, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: theme.border },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   totalLabel: { fontSize: 14, fontWeight: '600', color: theme.textSecondary },

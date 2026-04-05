@@ -98,8 +98,8 @@ Deno.serve(async (req: Request) => {
       tips: 0,
       tax: 0,
       discountAmount: 0,
-      deliveryFee: order.delivery_fee,
-      totalOrderCost: order.total,
+      deliveryFee: order.delivery_fee / 100, // Convert from Naira integer to Shipday's decimal format
+      totalOrderCost: order.total / 100,
       deliveryInstruction: order.delivery_note || '',
       paymentMethod: order.payment_method === 'cash' ? 'cash' : 'credit_card',
     };
@@ -144,6 +144,9 @@ Deno.serve(async (req: Request) => {
       trackingUrl = null;
     }
 
+    // Extract distance from Shipday response (km between pickup and delivery)
+    const shipdayDistance = shipdayData.distance ?? null;
+
     // Update order with Shipday data
     const updatePayload: Record<string, any> = {
       shipday_order_id: shipdayOrderId,
@@ -153,6 +156,24 @@ Deno.serve(async (req: Request) => {
     // Only set tracking URL if we have a valid one
     if (trackingUrl) {
       updatePayload.shipday_tracking_url = trackingUrl;
+    }
+
+    // If Shipday returned an actual distance, recalculate and update delivery fee
+    if (shipdayDistance && shipdayDistance > 0) {
+      // Pricing formula: baseFee (500) + ceil(km) * perKmRate (150), clamped [500, 5000]
+      const baseFee = 500;
+      const perKmRate = 150;
+      const minFee = 500;
+      const maxFee = 5000;
+      const recalcFee = Math.min(maxFee, Math.max(minFee, baseFee + Math.ceil(shipdayDistance) * perKmRate));
+
+      // Update delivery fee and total based on actual distance
+      const feeDiff = recalcFee - (order.delivery_fee || 0);
+      if (feeDiff !== 0) {
+        updatePayload.delivery_fee = recalcFee;
+        updatePayload.total = (order.total || 0) + feeDiff;
+        console.log(`Delivery fee adjusted: ${order.delivery_fee} -> ${recalcFee} (distance: ${shipdayDistance}km)`);
+      }
     }
 
     const { error: updateError } = await supabaseAdmin

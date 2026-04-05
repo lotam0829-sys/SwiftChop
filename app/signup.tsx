@@ -35,7 +35,6 @@ export default function SignupScreen() {
   const [restaurantCuisine, setRestaurantCuisine] = useState('');
   const [restaurantDescription, setRestaurantDescription] = useState('');
   const [restaurantPhone, setRestaurantPhone] = useState('');
-  const [deliveryFee, setDeliveryFee] = useState('1200');
   const [minOrder, setMinOrder] = useState('2000');
   const [deliveryTime, setDeliveryTime] = useState('25-35 min');
 
@@ -64,7 +63,6 @@ export default function SignupScreen() {
             profileUpdates.restaurant_cuisine = restaurantCuisine.trim();
             profileUpdates.restaurant_description = restaurantDescription.trim() || `Welcome to ${restaurantName.trim()}`;
             profileUpdates.phone = restaurantPhone.trim();
-            profileUpdates.restaurant_delivery_fee = parseInt(deliveryFee) || 1200;
             profileUpdates.restaurant_min_order = parseInt(minOrder) || 2000;
             profileUpdates.restaurant_delivery_time = deliveryTime.trim() || '25-35 min';
           }
@@ -166,7 +164,6 @@ export default function SignupScreen() {
         profileUpdates.restaurant_cuisine = restaurantCuisine.trim();
         profileUpdates.restaurant_description = restaurantDescription.trim() || `Welcome to ${restaurantName.trim()}`;
         profileUpdates.phone = restaurantPhone.trim();
-        profileUpdates.restaurant_delivery_fee = parseInt(deliveryFee) || 1200;
         profileUpdates.restaurant_min_order = parseInt(minOrder) || 2000;
         profileUpdates.restaurant_delivery_time = deliveryTime.trim() || '25-35 min';
         profileUpdates.is_approved = false;
@@ -317,18 +314,11 @@ export default function SignupScreen() {
         </View>
       </View>
 
-      <View style={styles.twoCol}>
-        <View style={[styles.inputGroup, { flex: 1 }]}>
-          <Text style={styles.inputLabel}>Delivery Fee (naira)</Text>
-          <View style={styles.inputWrap}>
-            <TextInput style={styles.input} placeholder="1200" placeholderTextColor={theme.textMuted} value={deliveryFee} onChangeText={setDeliveryFee} keyboardType="number-pad" />
-          </View>
-        </View>
-        <View style={[styles.inputGroup, { flex: 1 }]}>
-          <Text style={styles.inputLabel}>Min Order (naira)</Text>
-          <View style={styles.inputWrap}>
-            <TextInput style={styles.input} placeholder="2000" placeholderTextColor={theme.textMuted} value={minOrder} onChangeText={setMinOrder} keyboardType="number-pad" />
-          </View>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Minimum Order (naira)</Text>
+        <View style={styles.inputWrap}>
+          <MaterialIcons name="shopping-bag" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+          <TextInput style={styles.input} placeholder="2000" placeholderTextColor={theme.textMuted} value={minOrder} onChangeText={setMinOrder} keyboardType="number-pad" />
         </View>
       </View>
 
