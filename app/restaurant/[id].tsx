@@ -88,8 +88,8 @@ export default function RestaurantDetailScreen() {
       const maxTime = Math.round(minTime + 10);
       return `${minTime}-${maxTime} min`;
     }
-    return restaurant?.delivery_time || '25-35 min';
-  }, [distanceKm, restaurant]);
+    return null; // Don't show delivery time if distance cannot be calculated
+  }, [distanceKm]);
 
   const distanceLabel = distanceKm !== null ? (distanceKm < 1 ? `${(distanceKm * 1000).toFixed(0)}m` : `${distanceKm.toFixed(1)}km`) : null;
 
@@ -147,11 +147,15 @@ export default function RestaurantDetailScreen() {
             <Text style={styles.infoValue}>{avgRating.toFixed(1)}</Text>
             <Text style={styles.infoLabel}>({reviews.length || restaurant.review_count})</Text>
           </Pressable>
-          <View style={styles.infoDivider} />
-          <View style={styles.infoItem}>
-            <MaterialIcons name="access-time" size={18} color={theme.textMuted} />
-            <Text style={styles.infoValue}>{estimatedDeliveryTime}</Text>
-          </View>
+          {estimatedDeliveryTime ? (
+            <>
+              <View style={styles.infoDivider} />
+              <View style={styles.infoItem}>
+                <MaterialIcons name="access-time" size={18} color={theme.textMuted} />
+                <Text style={styles.infoValue}>{estimatedDeliveryTime}</Text>
+              </View>
+            </>
+          ) : null}
           <View style={styles.infoDivider} />
           <View style={styles.infoItem}>
             <MaterialIcons name="delivery-dining" size={18} color={theme.textMuted} />

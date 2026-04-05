@@ -8,12 +8,14 @@ import * as Location from 'expo-location';
 import { theme } from '../constants/theme';
 import { config, calculateDeliveryFee, deliveryPricing } from '../constants/config';
 import { useApp } from '../contexts/AppContext';
+import { useAlert } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
 
 export default function CheckoutScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { cart, cartTotal, placeOrder, userLocation, userProfile, restaurants } = useApp();
+  const { showAlert } = useAlert();
 
   const [address, setAddress] = useState('');
   const [loading, setLoading] = useState(false);
@@ -77,7 +79,10 @@ export default function CheckoutScreen() {
   const total = cartTotal + deliveryFee + serviceFee;
 
   const handlePlaceOrder = async () => {
-    if (!address.trim()) return;
+    if (!address.trim()) {
+      showAlert('Address Required', 'Please enter a delivery address before placing your order.');
+      return;
+    }
     setLoading(true);
     const order = await placeOrder(address, note, 'card', deliveryFee);
     setLoading(false);
@@ -85,6 +90,15 @@ export default function CheckoutScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace({ pathname: '/order-tracking', params: { orderId: order.id } });
     }
+  };
+
+  // Card requirement check — since Stripe is not yet integrated, we show a notice
+  const handleCardCheck = () => {
+    showAlert(
+      'Card Required',
+      'You need to add a payment card before placing an order. Stripe payment integration will be available shortly.',
+      [{ text: 'OK', style: 'default' }]
+    );
   };
 
   return (
@@ -99,6 +113,15 @@ export default function CheckoutScreen() {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 180 }} keyboardShouldPersistTaps="handled">
+          {/* Card requirement banner */}
+          <View style={styles.cardBanner}>
+            <MaterialIcons name="credit-card" size={20} color="#D97706" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardBannerTitle}>Payment Card Required</Text>
+              <Text style={styles.cardBannerText}>A valid debit or credit card is required to place an order. Stripe integration is coming soon.</Text>
+            </View>
+          </View>
+
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <MaterialIcons name="location-on" size={20} color={theme.primary} />
@@ -158,7 +181,9 @@ export default function CheckoutScreen() {
             <View style={styles.summaryRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text style={styles.summaryLabel}>Delivery fee</Text>
-                <Text style={styles.summaryHint}>(est. ~{estimatedKm || deliveryPricing.defaultEstimateKm}km)</Text>
+                {estimatedKm ? (
+                  <Text style={styles.summaryHint}>(~{estimatedKm}km)</Text>
+                ) : null}
               </View>
               <Text style={styles.summaryValue}>{config.currency}{deliveryFee.toLocaleString()}</Text>
             </View>
@@ -190,6 +215,9 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
   backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: theme.textPrimary },
+  cardBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginHorizontal: 16, marginBottom: 16, padding: 14, borderRadius: 14, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
+  cardBannerTitle: { fontSize: 14, fontWeight: '700', color: '#92400E', marginBottom: 2 },
+  cardBannerText: { fontSize: 13, color: '#92400E', lineHeight: 18 },
   section: { paddingHorizontal: 16, marginBottom: 20 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },

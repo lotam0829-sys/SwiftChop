@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal, FlatList } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -55,8 +55,6 @@ export default function HomeScreen() {
       setIsAtLocation(true);
       return;
     }
-    // If we have a saved address and GPS location, compare distance
-    // A simple heuristic: if locationName doesn't partially match saved address
     if (locationName && userProfile.address) {
       const saved = userProfile.address.toLowerCase();
       const current = locationName.toLowerCase();
@@ -76,9 +74,9 @@ export default function HomeScreen() {
     return R * c;
   };
 
-  // Estimate delivery time based on distance
-  const getEstimatedDeliveryTime = (distKm: number): string => {
-    // Base 10min prep + 3min/km driving
+  // Dynamic delivery time based on distance — returns null if cannot calculate
+  const getEstimatedDeliveryTime = (distKm: number | null): string | null => {
+    if (distKm === null) return null;
     const minTime = Math.round(10 + distKm * 3);
     const maxTime = Math.round(minTime + 10);
     return `${minTime}-${maxTime} min`;
@@ -118,10 +116,9 @@ export default function HomeScreen() {
     return d < 1 ? `${(d * 1000).toFixed(0)}m` : `${d.toFixed(1)}km`;
   };
 
-  const getDeliveryTimeLabel = (r: DbRestaurant): string => {
+  const getDeliveryTimeLabel = (r: DbRestaurant): string | null => {
     const d = getRestaurantDistance(r);
-    if (d !== null) return getEstimatedDeliveryTime(d);
-    return r.delivery_time;
+    return getEstimatedDeliveryTime(d);
   };
 
   const displayAddress = locationName || userProfile?.address || 'Set your delivery address';
@@ -130,11 +127,6 @@ export default function HomeScreen() {
     userProfile?.address ? { label: 'Saved Address', value: userProfile.address } : null,
     locationName ? { label: 'Current Location', value: locationName } : null,
   ].filter(Boolean) as { label: string; value: string }[];
-
-  const handleSelectAddress = (addr: string) => {
-    setShowAddressPicker(false);
-    // Just display the selected address
-  };
 
   const handleRefreshLocation = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -225,7 +217,10 @@ export default function HomeScreen() {
                             ) : null}
                           </View>
                           <Text style={styles.featuredName}>{r.name}</Text>
-                          <Text style={styles.featuredMeta}>{r.cuisine} {"\u00B7"} {delivTime}</Text>
+                          <Text style={styles.featuredMeta}>
+                            {r.cuisine}
+                            {delivTime ? ` \u00B7 ${delivTime}` : ''}
+                          </Text>
                         </View>
                       </Pressable>
                     );
@@ -260,9 +255,13 @@ export default function HomeScreen() {
                         </View>
                         <Text style={styles.restaurantCuisine}>{r.cuisine}</Text>
                         <View style={styles.restaurantMeta}>
-                          <MaterialIcons name="access-time" size={14} color={theme.textMuted} />
-                          <Text style={styles.metaText}>{delivTime}</Text>
-                          <View style={styles.metaDot} />
+                          {delivTime ? (
+                            <>
+                              <MaterialIcons name="access-time" size={14} color={theme.textMuted} />
+                              <Text style={styles.metaText}>{delivTime}</Text>
+                              <View style={styles.metaDot} />
+                            </>
+                          ) : null}
                           <MaterialIcons name="delivery-dining" size={14} color={theme.textMuted} />
                           <Text style={styles.metaText}>{"\u20A6"}{r.delivery_fee.toLocaleString()}</Text>
                           {dist ? (
@@ -307,7 +306,7 @@ export default function HomeScreen() {
             </Pressable>
 
             {savedAddresses.map((addr, idx) => (
-              <Pressable key={idx} onPress={() => handleSelectAddress(addr.value)} style={styles.addressItem}>
+              <Pressable key={idx} onPress={() => setShowAddressPicker(false)} style={styles.addressItem}>
                 <View style={styles.addressIcon}>
                   <MaterialIcons name={addr.label === 'Current Location' ? 'gps-fixed' : 'home'} size={20} color={theme.primary} />
                 </View>
