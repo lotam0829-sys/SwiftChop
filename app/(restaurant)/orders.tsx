@@ -7,6 +7,8 @@ import * as Haptics from 'expo-haptics';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { DbOrder } from '../../services/supabaseData';
+import { notifyPickupReady } from '../../services/pickupNotification';
+import { useAlert } from '@/template';
 
 const statusTabs = [
   { key: 'all', label: 'All' },
@@ -29,6 +31,8 @@ const statusConfig: Record<string, { color: string; bg: string; label: string; n
 export default function RestaurantOrdersScreen() {
   const insets = useSafeAreaInsets();
   const { restaurantOrders, updateOrderStatus, refreshRestaurantData } = useApp();
+  const { showAlert } = useAlert();
+  const [notifyingOrderId, setNotifyingOrderId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
@@ -132,6 +136,31 @@ export default function RestaurantOrdersScreen() {
               <Text style={styles.acceptText}>{config.nextLabel}</Text>
             </Pressable>
           </View>
+        ) : null}
+
+        {/* Pickup Ready Notification Button */}
+        {item.delivery_address?.startsWith('PICKUP:') && (item.status === 'preparing' || item.status === 'confirmed') ? (
+          <Pressable
+            onPress={async () => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setNotifyingOrderId(item.id);
+              const { success, error } = await notifyPickupReady(item.id);
+              setNotifyingOrderId(null);
+              if (success) {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                showAlert('Customer Notified', 'The customer has been notified that their pickup order is ready.');
+              } else {
+                showAlert('Notification Failed', error || 'Could not notify the customer. They may not have notifications enabled.');
+              }
+            }}
+            style={styles.notifyPickupBtn}
+            disabled={notifyingOrderId === item.id}
+          >
+            <MaterialIcons name="notifications-active" size={18} color="#2563EB" />
+            <Text style={styles.notifyPickupText}>
+              {notifyingOrderId === item.id ? 'Notifying...' : 'Notify Ready for Pickup'}
+            </Text>
+          </Pressable>
         ) : null}
       </View>
     );
@@ -256,4 +285,6 @@ const styles = StyleSheet.create({
   emptySubtitle: { fontSize: 14, color: '#999', marginTop: 4, textAlign: 'center' },
   clearBtn: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12, backgroundColor: 'rgba(255,107,0,0.15)' },
   clearBtnText: { fontSize: 14, fontWeight: '600', color: theme.primary },
+  notifyPickupBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10, paddingVertical: 12, borderRadius: 12, backgroundColor: '#DBEAFE', borderWidth: 1, borderColor: '#93C5FD' },
+  notifyPickupText: { fontSize: 14, fontWeight: '600', color: '#2563EB' },
 });

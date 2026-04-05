@@ -179,6 +179,18 @@ export default function HomeScreen() {
           <Text style={styles.searchPlaceholder}>Search restaurants or dishes...</Text>
         </Pressable>
 
+        {/* Deals & Benefits Banner */}
+        <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/deals'); }} style={styles.dealsBanner}>
+          <View style={styles.dealsIconWrap}>
+            <MaterialIcons name="local-offer" size={24} color="#FFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.dealsBannerTitle}>Deals & Benefits</Text>
+            <Text style={styles.dealsBannerSub}>Buy One Get One FREE on select items</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={22} color="#FFF" />
+        </Pressable>
+
         {/* Categories */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoriesRow}>
           {foodCategories.map((cat) => (
@@ -416,6 +428,10 @@ const styles = StyleSheet.create({
   greetingSub: { fontSize: 15, color: theme.textSecondary, marginTop: 4 },
   searchBar: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, height: 50, borderRadius: 14, backgroundColor: theme.backgroundSecondary, paddingHorizontal: 16, gap: 10, marginBottom: 16 },
   searchPlaceholder: { fontSize: 15, color: theme.textMuted },
+  dealsBanner: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 16, padding: 16, borderRadius: 16, backgroundColor: '#E65100' },
+  dealsIconWrap: { width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  dealsBannerTitle: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  dealsBannerSub: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
   categoriesRow: { paddingHorizontal: 16, gap: 10, paddingBottom: 8 },
   categoryChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, backgroundColor: theme.backgroundSecondary },
   categoryText: { fontSize: 13, fontWeight: '600', color: theme.textSecondary },

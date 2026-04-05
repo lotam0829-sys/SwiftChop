@@ -92,6 +92,7 @@ function RootNavigator() {
         <Stack.Screen name="customer-terms" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
         <Stack.Screen name="customer-privacy" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
         <Stack.Screen name="customer-cookies" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="deals" options={{ animation: 'slide_from_right', headerShown: false }} />
         <Stack.Screen name="review" options={{ presentation: 'modal', animation: 'slide_from_bottom', headerShown: false }} />
       </Stack>
     </>

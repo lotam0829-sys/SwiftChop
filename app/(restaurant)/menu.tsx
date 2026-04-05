@@ -37,6 +37,7 @@ export default function RestaurantMenuScreen() {
   const [newPrice, setNewPrice] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [newPopular, setNewPopular] = useState(false);
+  const [newBogo, setNewBogo] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
@@ -74,6 +75,7 @@ export default function RestaurantMenuScreen() {
     setNewPrice('');
     setNewCategory(allCategories[0] || 'nigerian');
     setNewPopular(false);
+    setNewBogo(false);
     setSelectedImageUri(null);
   };
 
@@ -193,8 +195,9 @@ export default function RestaurantMenuScreen() {
       image_key: imageKey,
       is_available: true,
       is_popular: newPopular,
+      is_bogo: newBogo,
       category: newCategory || allCategories[0] || 'nigerian',
-    });
+    } as any);
     setAddLoading(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     resetForm();
@@ -223,6 +226,7 @@ export default function RestaurantMenuScreen() {
       price: parseInt(newPrice) || 0,
       image_key: imageKey,
       is_popular: newPopular,
+      is_bogo: newBogo,
       category: newCategory,
     } as any);
 
@@ -248,6 +252,7 @@ export default function RestaurantMenuScreen() {
     setNewPrice(item.price.toString());
     setNewCategory(item.category);
     setNewPopular(item.is_popular);
+    setNewBogo((item as any).is_bogo || false);
     setSelectedImageUri(null);
     setShowEditModal(true);
   };
@@ -269,6 +274,7 @@ export default function RestaurantMenuScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
           {item.is_popular ? <MaterialIcons name="local-fire-department" size={14} color={theme.primary} /> : null}
+          {(item as any).is_bogo ? <View style={styles.bogoTag}><Text style={styles.bogoTagText}>BOGO</Text></View> : null}
         </View>
         <Text style={styles.itemDesc} numberOfLines={1}>{item.description}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
@@ -360,6 +366,18 @@ export default function RestaurantMenuScreen() {
                 <Text style={styles.popularLabel}>Mark as Popular Item</Text>
                 <MaterialIcons name="local-fire-department" size={18} color={newPopular ? theme.primary : '#666'} />
               </Pressable>
+            </View>
+            <View style={styles.formGroup}>
+              <Pressable onPress={() => setNewBogo(!newBogo)} style={styles.popularToggle}>
+                <View style={[styles.popCheckbox, newBogo && { backgroundColor: '#E65100', borderColor: '#E65100' }]}>
+                  {newBogo ? <MaterialIcons name="check" size={16} color="#FFF" /> : null}
+                </View>
+                <Text style={styles.popularLabel}>Buy One Get One Free (BOGO)</Text>
+                <MaterialIcons name="local-offer" size={18} color={newBogo ? '#E65100' : '#666'} />
+              </Pressable>
+              {newBogo ? (
+                <Text style={{ fontSize: 12, color: '#E65100', marginTop: 6, marginLeft: 36 }}>This item will appear in the Deals section for customers</Text>
+              ) : null}
             </View>
             <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
               <PrimaryButton label={addLoading ? (uploadingImage ? 'Uploading image...' : 'Saving...') : submitLabel} onPress={onSubmit} loading={addLoading} variant="primary" />
@@ -498,6 +516,8 @@ const styles = StyleSheet.create({
   itemPrice: { fontSize: 15, fontWeight: '700', color: theme.primary },
   categoryTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: 'rgba(255,107,0,0.1)' },
   categoryTagText: { fontSize: 10, fontWeight: '600', color: theme.primary, textTransform: 'capitalize' },
+  bogoTag: { backgroundColor: '#FFF3E0', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  bogoTagText: { fontSize: 9, fontWeight: '800', color: '#E65100' },
   itemActions: { gap: 6 },
   editBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(59,130,246,0.1)', alignItems: 'center', justifyContent: 'center' },
   toggleBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#2A2A2A', alignItems: 'center', justifyContent: 'center' },
