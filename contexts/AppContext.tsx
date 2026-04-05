@@ -10,6 +10,7 @@ import {
   fetchUserProfile, updateUserProfile as updateProfileDb,
   fetchOwnerRestaurant, createRestaurantForOwner,
   insertMenuItem, updateMenuItem, deleteMenuItemById,
+  dispatchToShipday, fetchOrderById,
 } from '../services/supabaseData';
 import { foodCategories } from '../services/mockData';
 
@@ -52,6 +53,7 @@ interface AppContextType {
   loadingOrders: boolean;
   placeOrder: (deliveryAddress: string, note?: string, paymentMethod?: string) => Promise<DbOrder | null>;
   refreshCustomerOrders: () => Promise<void>;
+  refreshOrder: (orderId: string) => Promise<DbOrder | null>;
 
   // Restaurant owner
   ownerRestaurant: DbRestaurant | null;
@@ -211,6 +213,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLoadingOrders(false);
   };
 
+  // Refresh a single order (for polling on tracking screen)
+  const refreshOrder = async (orderId: string): Promise<DbOrder | null> => {
+    const { data } = await fetchOrderById(orderId);
+    if (data) {
+      // Update in customer orders list
+      setCustomerOrders(prev => prev.map(o => o.id === orderId ? data : o));
+      // Update in restaurant orders list
+      setRestaurantOrders(prev => prev.map(o => o.id === orderId ? data : o));
+    }
+    return data;
+  };
+
   const placeOrder = async (deliveryAddress: string, note?: string, paymentMethod?: string): Promise<DbOrder | null> => {
     if (!user?.id || cart.length === 0) return null;
 
@@ -218,7 +232,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const restaurantName = cart[0].restaurantName;
     const restaurant = restaurants.find(r => r.id === restaurantId);
 
-    const orderNumber = `ORD-${Date.now()}`;
+    const orderNumber = `SC-${Date.now().toString(36).toUpperCase()}`;
     const deliveryFee = restaurant?.delivery_fee || 1500;
     const serviceFee = 200;
     const total = cartTotal + deliveryFee + serviceFee;
@@ -265,6 +279,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })),
       };
       setCustomerOrders(prev => [orderWithItems, ...prev]);
+
+      // Dispatch to Shipday in background (non-blocking)
+      dispatchToShipday(data.id).then(({ data: shipdayResult, error: shipdayError }) => {
+        if (shipdayError) {
+          console.log('Shipday dispatch note:', shipdayError);
+        } else if (shipdayResult) {
+          console.log('Shipday dispatch success:', shipdayResult);
+          // Update local order with tracking URL
+          if (shipdayResult.trackingUrl) {
+            setCustomerOrders(prev =>
+              prev.map(o => o.id === data.id
+                ? { ...o, shipday_tracking_url: shipdayResult.trackingUrl, shipday_order_id: shipdayResult.shipdayOrderId }
+                : o
+              )
+            );
+          }
+        }
+      });
+
       return orderWithItems;
     }
     if (error) Alert.alert('Order Error', error);
@@ -327,7 +360,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       restaurants, loadingRestaurants, refreshRestaurants,
       getMenuItems,
       cart, addToCart, removeFromCart, updateCartQuantity, clearCart, cartTotal, cartCount,
-      customerOrders, loadingOrders, placeOrder, refreshCustomerOrders,
+      customerOrders, loadingOrders, placeOrder, refreshCustomerOrders, refreshOrder,
       ownerRestaurant, restaurantOrders, restaurantMenuItems, loadingRestaurantData,
       refreshRestaurantData, updateOrderStatus,
       addMenuItem, deleteMenuItemAction, toggleMenuItemAvailability,

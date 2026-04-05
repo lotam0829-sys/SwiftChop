@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '@/template';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 
 const supabase = getSupabaseClient();
 
@@ -56,6 +57,12 @@ export interface DbOrder {
   created_at: string;
   updated_at: string;
   order_items?: DbOrderItem[];
+  // Shipday fields
+  shipday_order_id?: number | null;
+  shipday_tracking_url?: string | null;
+  shipday_carrier_name?: string | null;
+  shipday_carrier_phone?: string | null;
+  shipday_eta?: string | null;
 }
 
 export interface DbOrderItem {
@@ -213,6 +220,39 @@ export async function updateOrderStatus(orderId: string, status: string): Promis
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', orderId);
   return { error: error?.message || null };
+}
+
+// ---- Shipday Integration ----
+
+export async function dispatchToShipday(orderId: string): Promise<{ data: any; error: string | null }> {
+  const { data, error } = await supabase.functions.invoke('create-shipday-order', {
+    body: { orderId },
+  });
+
+  if (error) {
+    let errorMessage = error.message;
+    if (error instanceof FunctionsHttpError) {
+      try {
+        const textContent = await error.context?.text();
+        errorMessage = textContent || error.message;
+      } catch {
+        errorMessage = error.message || 'Failed to dispatch order';
+      }
+    }
+    return { data: null, error: `Shipday: ${errorMessage}` };
+  }
+
+  return { data, error: null };
+}
+
+export async function fetchOrderById(orderId: string): Promise<{ data: DbOrder | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*, order_items(*)')
+    .eq('id', orderId)
+    .single();
+  if (error) return { data: null, error: error.message };
+  return { data, error: null };
 }
 
 // ---- User Profile ----

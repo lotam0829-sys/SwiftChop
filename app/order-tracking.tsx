@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, Pressable, Linking } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -18,11 +18,11 @@ export default function OrderTrackingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
-  const { customerOrders, updateOrderStatus } = useApp();
+  const { customerOrders, refreshOrder } = useApp();
 
   const order = customerOrders.find(o => o.id === orderId) || customerOrders[0];
   const [currentStep, setCurrentStep] = useState(0);
-  const autoProgressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const statusIndex = steps.findIndex(s => s.key === order?.status);
 
@@ -41,22 +41,20 @@ export default function OrderTrackingScreen() {
     return () => clearInterval(interval);
   }, [statusIndex]);
 
-  // Auto-progress order status every 8 seconds for demo
+  // Poll for order status updates from Shipday webhooks (every 10s)
   useEffect(() => {
     if (!order || order.status === 'delivered' || order.status === 'cancelled') return;
 
-    autoProgressRef.current = setInterval(() => {
-      const currentIdx = steps.findIndex(s => s.key === order.status);
-      if (currentIdx >= 0 && currentIdx < steps.length - 1) {
-        const nextStatus = steps[currentIdx + 1].key;
-        updateOrderStatus(order.id, nextStatus);
+    pollingRef.current = setInterval(() => {
+      if (orderId) {
+        refreshOrder(orderId);
       }
-    }, 8000);
+    }, 10000);
 
     return () => {
-      if (autoProgressRef.current) clearInterval(autoProgressRef.current);
+      if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [order?.status, order?.id]);
+  }, [order?.status, orderId]);
 
   // Pulse animation for current step
   const pulseScale = useSharedValue(1);
@@ -72,6 +70,12 @@ export default function OrderTrackingScreen() {
   }, [currentStep]);
 
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulseScale.value }] }));
+
+  const handleOpenTracking = useCallback(() => {
+    if (order?.shipday_tracking_url) {
+      Linking.openURL(order.shipday_tracking_url);
+    }
+  }, [order?.shipday_tracking_url]);
 
   if (!order) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Order not found</Text></View>;
@@ -90,8 +94,38 @@ export default function OrderTrackingScreen() {
       <View style={styles.successBanner}>
         <View style={styles.successIcon}><MaterialIcons name="check" size={28} color="#FFF" /></View>
         <Text style={styles.successTitle}>Order Placed!</Text>
-        <Text style={styles.successSub}>Estimated delivery: {order.estimated_delivery}</Text>
+        <Text style={styles.successSub}>Estimated delivery: {order.shipday_eta || order.estimated_delivery}</Text>
       </View>
+
+      {/* Shipday Live Tracking Link */}
+      {order.shipday_tracking_url ? (
+        <Pressable onPress={handleOpenTracking} style={styles.trackingLinkBtn}>
+          <MaterialIcons name="map" size={20} color="#FFF" />
+          <Text style={styles.trackingLinkText}>Track Live on Map</Text>
+          <MaterialIcons name="open-in-new" size={16} color="rgba(255,255,255,0.7)" />
+        </Pressable>
+      ) : null}
+
+      {/* Carrier info */}
+      {order.shipday_carrier_name ? (
+        <View style={styles.carrierCard}>
+          <View style={styles.carrierAvatar}>
+            <MaterialIcons name="person" size={24} color={theme.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.carrierName}>{order.shipday_carrier_name}</Text>
+            <Text style={styles.carrierLabel}>Your delivery rider</Text>
+          </View>
+          {order.shipday_carrier_phone ? (
+            <Pressable
+              onPress={() => Linking.openURL(`tel:${order.shipday_carrier_phone}`)}
+              style={styles.callBtn}
+            >
+              <MaterialIcons name="phone" size={20} color={theme.primary} />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={styles.timeline}>
         {steps.map((step, idx) => {
@@ -148,16 +182,23 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 12 },
   backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: theme.textPrimary },
-  successBanner: { alignItems: 'center', paddingVertical: 28, backgroundColor: theme.primaryFaint, borderRadius: 20, marginBottom: 28 },
+  successBanner: { alignItems: 'center', paddingVertical: 24, backgroundColor: theme.primaryFaint, borderRadius: 20, marginBottom: 16 },
   successIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.success, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   successTitle: { fontSize: 22, fontWeight: '700', color: theme.textPrimary },
   successSub: { fontSize: 14, color: theme.textSecondary, marginTop: 4 },
-  timeline: { marginBottom: 24 },
+  trackingLinkBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: theme.primary, paddingVertical: 14, borderRadius: 14, marginBottom: 16 },
+  trackingLinkText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
+  carrierCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.backgroundSecondary, borderRadius: 14, padding: 14, marginBottom: 16 },
+  carrierAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
+  carrierName: { fontSize: 15, fontWeight: '700', color: theme.textPrimary },
+  carrierLabel: { fontSize: 12, color: theme.textMuted, marginTop: 2 },
+  callBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
+  timeline: { marginBottom: 20 },
   timelineItem: { flexDirection: 'row', gap: 14 },
   timelineLeft: { alignItems: 'center', width: 44 },
   timelineDot: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center' },
-  timelineLine: { width: 2, height: 32, backgroundColor: theme.border, marginVertical: 4 },
-  timelineContent: { flex: 1, paddingBottom: 24 },
+  timelineLine: { width: 2, height: 28, backgroundColor: theme.border, marginVertical: 4 },
+  timelineContent: { flex: 1, paddingBottom: 20 },
   timelineLabel: { fontSize: 15, fontWeight: '500', color: theme.textMuted },
   timelineSub: { fontSize: 13, color: theme.textMuted, marginTop: 2 },
   orderInfo: { backgroundColor: theme.backgroundSecondary, borderRadius: 16, padding: 18 },
