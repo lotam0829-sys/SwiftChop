@@ -26,10 +26,10 @@ export default function RestaurantProfileScreen() {
     {
       title: 'RESTAURANT',
       items: [
-        { icon: 'storefront', label: 'Restaurant Info', sub: ownerRestaurant?.name || 'Name, address, cuisine type', route: '' },
-        { icon: 'schedule', label: 'Operating Hours', sub: 'Set your open/close times', route: '' },
-        { icon: 'delivery-dining', label: 'Delivery Settings', sub: 'Fees, radius, minimum order', route: '' },
-        { icon: 'photo-camera', label: 'Photos', sub: 'Cover image, gallery', route: '' },
+        { icon: 'storefront', label: 'Restaurant Info', sub: ownerRestaurant?.name || 'Name, address, cuisine type', route: '/restaurant-account' },
+        { icon: 'schedule', label: 'Operating Hours', sub: 'Set your open/close times', route: '/restaurant-account' },
+        { icon: 'delivery-dining', label: 'Delivery Settings', sub: 'Radius, minimum order', route: '/restaurant-account' },
+        { icon: 'photo-camera', label: 'Photos', sub: 'Cover image, gallery', route: '/restaurant-account' },
       ],
     },
     {

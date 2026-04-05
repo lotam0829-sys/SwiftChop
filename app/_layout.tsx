@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AlertProvider, AuthProvider, useAuth } from '@/template';
@@ -12,7 +12,6 @@ function RootNavigator() {
   const { userProfile } = useApp();
   const segments = useSegments();
   const router = useRouter();
-  const hasRouted = useRef(false);
 
   const isAuthenticated = !!user;
   const isLoading = authLoading;
@@ -21,7 +20,10 @@ function RootNavigator() {
     if (isLoading) return;
 
     const first = segments[0] as string;
-    const isAuthScreen = ['welcome', 'login', 'signup', 'onboarding'].includes(first);
+    // Auth screens that require no authentication — onboarding is NOT here
+    // because onboarding is for authenticated users completing their profile
+    const isAuthScreen = ['welcome', 'login', 'signup'].includes(first);
+    const isOnboarding = first === 'onboarding';
     const isPending = first === 'pending-approval';
 
     // Not authenticated → go to welcome (unless already on an auth screen)
@@ -30,10 +32,14 @@ function RootNavigator() {
       return;
     }
 
-    // Authenticated but on an auth screen → route based on role
+    // On onboarding → let the user finish it (do NOT redirect away)
+    if (isAuthenticated && isOnboarding) {
+      return;
+    }
+
+    // Authenticated but on a login/signup/welcome screen → route based on role
     if (isAuthenticated && isAuthScreen) {
-      // Wait for profile to load before routing
-      if (!userProfile) return;
+      if (!userProfile) return; // Wait for profile to load
 
       if (userProfile.role === 'restaurant') {
         router.replace(userProfile.is_approved ? '/(restaurant)' : '/pending-approval');
@@ -64,6 +70,7 @@ function RootNavigator() {
         <Stack.Screen name="welcome" />
         <Stack.Screen name="login" />
         <Stack.Screen name="signup" />
+        <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(restaurant)" />
         <Stack.Screen name="restaurant/[id]" options={{ animation: 'slide_from_right' }} />
@@ -74,6 +81,12 @@ function RootNavigator() {
         <Stack.Screen name="pending-approval" />
         <Stack.Screen name="restaurant-account" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Account Settings', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
         <Stack.Screen name="restaurant-support" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Help & Support', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="edit-profile" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Edit Profile', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="delivery-addresses" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Delivery Addresses', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="payment-methods" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Payment Methods', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="notifications-settings" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Notifications', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="help-support" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Help & Support', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
+        <Stack.Screen name="about" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'About SwiftChop', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
       </Stack>
     </>
   );

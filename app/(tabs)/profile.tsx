@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../../constants/theme';
@@ -9,6 +10,7 @@ import { useAuth, useAlert } from '@/template';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { userProfile, customerOrders } = useApp();
   const { logout } = useAuth();
   const { showAlert } = useAlert();
@@ -22,13 +24,13 @@ export default function ProfileScreen() {
 
   const totalSpent = customerOrders.reduce((s, o) => s + o.total, 0);
 
-  const menuItems = [
-    { icon: 'person-outline', label: 'Edit Profile', subtitle: 'Name, email, phone' },
-    { icon: 'location-on', label: 'Delivery Addresses', subtitle: 'Manage saved addresses' },
-    { icon: 'credit-card', label: 'Payment Methods', subtitle: 'Cards and mobile money' },
-    { icon: 'notifications-none', label: 'Notifications', subtitle: 'Order updates, promotions' },
-    { icon: 'help-outline', label: 'Help & Support', subtitle: 'FAQ, contact us' },
-    { icon: 'info-outline', label: 'About SwiftChop', subtitle: 'Version 1.0.0' },
+  const menuItems: { icon: string; label: string; subtitle: string; route: string }[] = [
+    { icon: 'person-outline', label: 'Edit Profile', subtitle: 'Name, email, phone', route: '/edit-profile' },
+    { icon: 'location-on', label: 'Delivery Addresses', subtitle: 'Manage saved addresses', route: '/delivery-addresses' },
+    { icon: 'credit-card', label: 'Payment Methods', subtitle: 'Cards and mobile money', route: '/payment-methods' },
+    { icon: 'notifications-none', label: 'Notifications', subtitle: 'Order updates, promotions', route: '/notifications-settings' },
+    { icon: 'help-outline', label: 'Help & Support', subtitle: 'FAQ, contact us', route: '/help-support' },
+    { icon: 'info-outline', label: 'About SwiftChop', subtitle: 'Version 1.0.0', route: '/about' },
   ];
 
   return (
@@ -47,7 +49,9 @@ export default function ProfileScreen() {
             <Text style={styles.userEmail}>{userProfile?.email || 'user@email.com'}</Text>
             <Text style={styles.userPhone}>{userProfile?.phone || 'No phone set'}</Text>
           </View>
-          <Pressable style={styles.editBtn}><MaterialIcons name="edit" size={18} color={theme.primary} /></Pressable>
+          <Pressable style={styles.editBtn} onPress={() => { Haptics.selectionAsync(); router.push('/edit-profile'); }}>
+            <MaterialIcons name="edit" size={18} color={theme.primary} />
+          </Pressable>
         </View>
 
         <View style={styles.statsRow}>
@@ -56,7 +60,7 @@ export default function ProfileScreen() {
             <Text style={styles.statLabel}>Orders</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statValue}>₦{(totalSpent / 1000).toFixed(0)}k</Text>
+            <Text style={styles.statValue}>{"\u20A6"}{(totalSpent / 1000).toFixed(0)}k</Text>
             <Text style={styles.statLabel}>Total Spent</Text>
           </View>
           <View style={styles.statCard}>
@@ -67,7 +71,7 @@ export default function ProfileScreen() {
 
         <View style={styles.menuSection}>
           {menuItems.map((item, index) => (
-            <Pressable key={index} style={styles.menuItem} onPress={() => Haptics.selectionAsync()}>
+            <Pressable key={index} style={styles.menuItem} onPress={() => { Haptics.selectionAsync(); router.push(item.route as any); }}>
               <View style={styles.menuIconWrap}><MaterialIcons name={item.icon as any} size={22} color={theme.primary} /></View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.menuLabel}>{item.label}</Text>

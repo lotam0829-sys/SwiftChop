@@ -19,52 +19,28 @@ export default function SignupScreen() {
   const { refreshProfile } = useApp();
   const userRole = (role as 'customer' | 'restaurant') || 'customer';
 
-  // Step management for restaurant onboarding
-  const [step, setStep] = useState<'credentials' | 'restaurant_details' | 'otp'>('credentials');
-
-  // Credentials
+  const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState('');
-
-  // Restaurant details
-  const [restaurantName, setRestaurantName] = useState('');
-  const [restaurantAddress, setRestaurantAddress] = useState('');
-  const [restaurantCuisine, setRestaurantCuisine] = useState('');
-  const [restaurantDescription, setRestaurantDescription] = useState('');
-  const [restaurantPhone, setRestaurantPhone] = useState('');
-  const [minOrder, setMinOrder] = useState('2000');
-  const [deliveryTime, setDeliveryTime] = useState('25-35 min');
-
   const [settingUpProfile, setSettingUpProfile] = useState(false);
   const [googleAuthPending, setGoogleAuthPending] = useState(false);
   const prevUserId = useRef<string | null>(null);
 
-  // Handle Google Sign-In completion on signup page
-  // Route new users to onboarding, existing users refresh and let router handle
+  // Detect Google Sign-In completion → route to onboarding
   useEffect(() => {
     if (!googleAuthPending || !user?.id || user.id === prevUserId.current) return;
 
     const handlePostGoogleAuth = async () => {
       try {
         setSettingUpProfile(true);
-        const createdAt = user.created_at ? new Date(user.created_at) : null;
-        const now = new Date();
-        const isNewUser = createdAt && (now.getTime() - createdAt.getTime()) < 120000;
-
-        if (isNewUser) {
-          // New Google user → route to role-based onboarding
-          router.replace({ pathname: '/onboarding', params: { role: userRole } });
-        } else {
-          // Existing user → refresh and let router handle
-          await refreshProfile();
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }
+        // Always route to onboarding for Google signup
+        router.replace({ pathname: '/onboarding', params: { role: userRole } });
       } catch (err) {
         console.error('Post-Google signup error:', err);
-        showAlert('Error', 'Failed to set up your profile. Please try again.');
+        showAlert('Error', 'Failed to set up your profile.');
       } finally {
         setSettingUpProfile(false);
         setGoogleAuthPending(false);
@@ -74,7 +50,6 @@ export default function SignupScreen() {
     handlePostGoogleAuth();
   }, [user?.id, googleAuthPending]);
 
-  // Track previous user ID
   useEffect(() => {
     prevUserId.current = user?.id || null;
   }, [user?.id]);
@@ -86,31 +61,8 @@ export default function SignupScreen() {
     return true;
   };
 
-  const validateRestaurantDetails = (): boolean => {
-    if (!restaurantName.trim()) { showAlert('Error', 'Please enter your restaurant name'); return false; }
-    if (!restaurantAddress.trim()) { showAlert('Error', 'Please enter your restaurant address'); return false; }
-    if (!restaurantCuisine.trim()) { showAlert('Error', 'Please enter your cuisine type'); return false; }
-    if (!restaurantPhone.trim()) { showAlert('Error', 'Please enter a contact phone number'); return false; }
-    return true;
-  };
-
-  const handleNext = () => {
-    if (!validateCredentials()) return;
-    if (userRole === 'restaurant') {
-      setStep('restaurant_details');
-    } else {
-      handleSendOTP();
-    }
-  };
-
-  const handleRestaurantNext = () => {
-    if (!validateRestaurantDetails()) return;
-    handleSendOTP();
-  };
-
   const handleSendOTP = async () => {
     if (!validateCredentials()) return;
-
     const { error } = await sendOTP(email);
     if (error) {
       showAlert('Error', error);
@@ -124,61 +76,29 @@ export default function SignupScreen() {
     if (otp.length < 4) { showAlert('Error', 'Please enter the verification code'); return; }
 
     const { error, user: newUser } = await verifyOTPAndLogin(email, otp, { password });
-    if (error) {
-      showAlert('Verification Failed', error);
-      return;
-    }
+    if (error) { showAlert('Verification Failed', error); return; }
+    if (!newUser?.id) { showAlert('Error', 'Account creation failed.'); return; }
 
-    if (!newUser?.id) {
-      showAlert('Error', 'Account creation failed. Please try again.');
-      return;
-    }
-
-    // Set the correct role IMMEDIATELY after account creation
+    // Set role IMMEDIATELY, then route to onboarding for full setup
     setSettingUpProfile(true);
     try {
-      const profileUpdates: Record<string, any> = { role: userRole };
-
-      if (userRole === 'restaurant') {
-        profileUpdates.restaurant_name = restaurantName.trim();
-        profileUpdates.restaurant_address = restaurantAddress.trim();
-        profileUpdates.restaurant_cuisine = restaurantCuisine.trim();
-        profileUpdates.restaurant_description = restaurantDescription.trim() || `Welcome to ${restaurantName.trim()}`;
-        profileUpdates.phone = restaurantPhone.trim();
-        profileUpdates.restaurant_min_order = parseInt(minOrder) || 2000;
-        profileUpdates.restaurant_delivery_time = deliveryTime.trim() || '25-35 min';
-        profileUpdates.is_approved = false;
-      } else {
-        profileUpdates.is_approved = true;
-      }
-
-      await updateUserProfile(newUser.id, profileUpdates);
-
-      if (userRole === 'restaurant' && restaurantName.trim()) {
-        await createRestaurantForOwner(newUser.id, restaurantName.trim());
-      }
-
-      // Force context to re-read the updated profile so routing works correctly
+      await updateUserProfile(newUser.id, {
+        role: userRole,
+        is_approved: userRole === 'customer',
+      } as any);
       await refreshProfile();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Route to onboarding for both roles
+      router.replace({ pathname: '/onboarding', params: { role: userRole } });
     } catch (err) {
       console.error('Profile setup error:', err);
-      showAlert('Error', 'Failed to set up profile. Please contact support.');
+      showAlert('Error', 'Failed to set up profile.');
     } finally {
       setSettingUpProfile(false);
     }
   };
 
   const handleGoogleSignIn = async () => {
-    // For restaurant role, ensure details are collected first
-    if (userRole === 'restaurant' && step === 'credentials') {
-      showAlert('Restaurant Details Required', 'Please fill in your credentials and restaurant details first, then use Google Sign-In on the final step. Or continue with email verification.');
-      return;
-    }
-    if (userRole === 'restaurant' && !validateRestaurantDetails()) {
-      return;
-    }
-
     setGoogleAuthPending(true);
     const { error } = await signInWithGoogle();
     if (error) {
@@ -188,198 +108,6 @@ export default function SignupScreen() {
   };
 
   const isProcessing = operationLoading || settingUpProfile;
-
-  const renderCredentialsStep = () => (
-    <>
-      {/* Google Sign-In — only for customer signups at this step */}
-      {userRole === 'customer' ? (
-        <>
-          <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={isProcessing}>
-            <Ionicons name="logo-google" size={20} color="#DB4437" />
-            <Text style={styles.googleBtnText}>Continue with Google</Text>
-          </Pressable>
-
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or sign up with email</Text>
-            <View style={styles.dividerLine} />
-          </View>
-        </>
-      ) : null}
-
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Email address</Text>
-        <View style={styles.inputWrap}>
-          <MaterialIcons name="email" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-          <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={theme.textMuted} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-        </View>
-      </View>
-
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Password</Text>
-        <View style={styles.inputWrap}>
-          <MaterialIcons name="lock" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-          <TextInput style={[styles.input, { flex: 1 }]} placeholder="Min. 6 characters" placeholderTextColor={theme.textMuted} value={password} onChangeText={setPassword} secureTextEntry={!showPassword} />
-          <Pressable onPress={() => setShowPassword(!showPassword)}>
-            <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textMuted} />
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Confirm Password</Text>
-        <View style={styles.inputWrap}>
-          <MaterialIcons name="lock" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-          <TextInput style={[styles.input, { flex: 1 }]} placeholder="Re-enter password" placeholderTextColor={theme.textMuted} value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry={!showPassword} />
-        </View>
-      </View>
-
-      <View style={{ height: 8 }} />
-      <PrimaryButton
-        label={userRole === 'restaurant' ? 'Next: Restaurant Details' : 'Send Verification Code'}
-        onPress={handleNext}
-        loading={isProcessing}
-        variant="dark"
-      />
-    </>
-  );
-
-  const renderRestaurantDetailsStep = () => (
-    <>
-      <View style={styles.stepIndicator}>
-        <View style={[styles.stepDot, styles.stepDotCompleted]} />
-        <View style={[styles.stepLine, styles.stepLineCompleted]} />
-        <View style={[styles.stepDot, styles.stepDotActive]} />
-        <View style={styles.stepLine} />
-        <View style={styles.stepDot} />
-      </View>
-      <Text style={styles.stepLabel}>Step 2 of 3: Restaurant Details</Text>
-
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Restaurant Name *</Text>
-        <View style={styles.inputWrap}>
-          <MaterialIcons name="storefront" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-          <TextInput style={styles.input} placeholder="e.g. Mama Nkechi's Kitchen" placeholderTextColor={theme.textMuted} value={restaurantName} onChangeText={setRestaurantName} />
-        </View>
-      </View>
-
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Restaurant Address *</Text>
-        <View style={styles.inputWrap}>
-          <MaterialIcons name="location-on" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-          <TextInput style={styles.input} placeholder="12 Awolowo Rd, Ikoyi, Lagos" placeholderTextColor={theme.textMuted} value={restaurantAddress} onChangeText={setRestaurantAddress} />
-        </View>
-      </View>
-
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Cuisine Type *</Text>
-        <View style={styles.inputWrap}>
-          <MaterialIcons name="restaurant-menu" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-          <TextInput style={styles.input} placeholder="e.g. Traditional Nigerian, Grilled, Fast Food" placeholderTextColor={theme.textMuted} value={restaurantCuisine} onChangeText={setRestaurantCuisine} />
-        </View>
-      </View>
-
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Phone Number *</Text>
-        <View style={styles.inputWrap}>
-          <MaterialIcons name="phone" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-          <TextInput style={styles.input} placeholder="+234 801 234 5678" placeholderTextColor={theme.textMuted} value={restaurantPhone} onChangeText={setRestaurantPhone} keyboardType="phone-pad" />
-        </View>
-      </View>
-
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Description (optional)</Text>
-        <View style={[styles.inputWrap, { height: 80, alignItems: 'flex-start', paddingVertical: 12 }]}>
-          <MaterialIcons name="description" size={20} color={theme.textMuted} style={{ marginRight: 10, marginTop: 2 }} />
-          <TextInput style={[styles.input, { textAlignVertical: 'top' }]} placeholder="Tell customers about your restaurant..." placeholderTextColor={theme.textMuted} value={restaurantDescription} onChangeText={setRestaurantDescription} multiline />
-        </View>
-      </View>
-
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Minimum Order (naira)</Text>
-        <View style={styles.inputWrap}>
-          <MaterialIcons name="shopping-bag" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-          <TextInput style={styles.input} placeholder="2000" placeholderTextColor={theme.textMuted} value={minOrder} onChangeText={setMinOrder} keyboardType="number-pad" />
-        </View>
-      </View>
-
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Delivery Time</Text>
-        <View style={styles.inputWrap}>
-          <MaterialIcons name="schedule" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-          <TextInput style={styles.input} placeholder="25-35 min" placeholderTextColor={theme.textMuted} value={deliveryTime} onChangeText={setDeliveryTime} />
-        </View>
-      </View>
-
-      <View style={{ height: 8 }} />
-      <PrimaryButton label="Send Verification Code" onPress={handleRestaurantNext} loading={isProcessing} variant="dark" />
-
-      {/* Google Sign-In available here after restaurant details are filled */}
-      <View style={styles.divider}>
-        <View style={styles.dividerLine} />
-        <Text style={styles.dividerText}>or</Text>
-        <View style={styles.dividerLine} />
-      </View>
-      <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={isProcessing}>
-        <Ionicons name="logo-google" size={20} color="#DB4437" />
-        <Text style={styles.googleBtnText}>Sign up with Google</Text>
-      </Pressable>
-
-      <Pressable onPress={() => setStep('credentials')} style={{ marginTop: 14, alignSelf: 'center' }}>
-        <Text style={{ fontSize: 14, color: theme.primary, fontWeight: '600' }}>Back to credentials</Text>
-      </Pressable>
-    </>
-  );
-
-  const renderOTPStep = () => (
-    <>
-      <View style={styles.stepIndicator}>
-        <View style={[styles.stepDot, styles.stepDotCompleted]} />
-        <View style={[styles.stepLine, styles.stepLineCompleted]} />
-        {userRole === 'restaurant' ? (
-          <>
-            <View style={[styles.stepDot, styles.stepDotCompleted]} />
-            <View style={[styles.stepLine, styles.stepLineCompleted]} />
-          </>
-        ) : null}
-        <View style={[styles.stepDot, styles.stepDotActive]} />
-      </View>
-      <Text style={styles.stepLabel}>Final Step: Verify Email</Text>
-
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Verification Code</Text>
-        <View style={styles.inputWrap}>
-          <MaterialIcons name="pin" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-          <TextInput
-            style={[styles.input, { letterSpacing: 8, fontSize: 22, fontWeight: '700', textAlign: 'center' }]}
-            placeholder="0000"
-            placeholderTextColor={theme.textMuted}
-            value={otp}
-            onChangeText={setOtp}
-            keyboardType="number-pad"
-            maxLength={4}
-            autoFocus
-          />
-        </View>
-      </View>
-
-      <View style={{ height: 8 }} />
-      <PrimaryButton
-        label={settingUpProfile ? 'Setting up your account...' : 'Verify & Create Account'}
-        onPress={handleVerifyOTP}
-        loading={isProcessing}
-        variant="dark"
-      />
-
-      <Pressable onPress={() => { setStep(userRole === 'restaurant' ? 'restaurant_details' : 'credentials'); setOtp(''); }} style={{ marginTop: 16, alignSelf: 'center' }}>
-        <Text style={{ fontSize: 14, color: theme.primary, fontWeight: '600' }}>Go Back</Text>
-      </Pressable>
-
-      <Pressable onPress={handleSendOTP} style={{ marginTop: 8, alignSelf: 'center' }}>
-        <Text style={{ fontSize: 14, color: theme.textSecondary }}>Resend Code</Text>
-      </Pressable>
-    </>
-  );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -404,21 +132,93 @@ export default function SignupScreen() {
                 {userRole === 'customer' ? 'Customer' : 'Restaurant Partner'}
               </Text>
             </View>
-            <Text style={styles.title}>
-              {step === 'otp' ? 'Verify your email' : step === 'restaurant_details' ? 'Restaurant Details' : 'Create your account'}
-            </Text>
+            <Text style={styles.title}>{step === 'otp' ? 'Verify your email' : 'Create your account'}</Text>
             <Text style={styles.subtitle}>
               {step === 'otp'
                 ? `Enter the 4-digit code sent to ${email}`
-                : step === 'restaurant_details'
-                  ? 'Complete your restaurant profile to get started'
-                  : userRole === 'customer' ? 'Start ordering delicious meals' : 'Partner with SwiftChop to grow your business'}
+                : userRole === 'customer' ? 'Start ordering delicious meals' : 'Partner with SwiftChop to grow your business'}
             </Text>
           </View>
 
-          {step === 'credentials' ? renderCredentialsStep() : null}
-          {step === 'restaurant_details' ? renderRestaurantDetailsStep() : null}
-          {step === 'otp' ? renderOTPStep() : null}
+          {step === 'credentials' ? (
+            <>
+              <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={isProcessing}>
+                <Ionicons name="logo-google" size={20} color="#DB4437" />
+                <Text style={styles.googleBtnText}>Continue with Google</Text>
+              </Pressable>
+
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or sign up with email</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email address</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialIcons name="email" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+                  <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={theme.textMuted} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Password</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialIcons name="lock" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Min. 6 characters" placeholderTextColor={theme.textMuted} value={password} onChangeText={setPassword} secureTextEntry={!showPassword} />
+                  <Pressable onPress={() => setShowPassword(!showPassword)}>
+                    <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textMuted} />
+                  </Pressable>
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Confirm Password</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialIcons name="lock" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Re-enter password" placeholderTextColor={theme.textMuted} value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry={!showPassword} />
+                </View>
+              </View>
+
+              <View style={{ height: 8 }} />
+              <PrimaryButton label="Send Verification Code" onPress={handleSendOTP} loading={isProcessing} variant="dark" />
+            </>
+          ) : (
+            <>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Verification Code</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialIcons name="pin" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+                  <TextInput
+                    style={[styles.input, { letterSpacing: 8, fontSize: 22, fontWeight: '700', textAlign: 'center' }]}
+                    placeholder="0000"
+                    placeholderTextColor={theme.textMuted}
+                    value={otp}
+                    onChangeText={setOtp}
+                    keyboardType="number-pad"
+                    maxLength={4}
+                    autoFocus
+                  />
+                </View>
+              </View>
+
+              <View style={{ height: 8 }} />
+              <PrimaryButton
+                label={settingUpProfile ? 'Setting up...' : 'Verify & Create Account'}
+                onPress={handleVerifyOTP}
+                loading={isProcessing}
+                variant="dark"
+              />
+
+              <Pressable onPress={() => { setStep('credentials'); setOtp(''); }} style={{ marginTop: 16, alignSelf: 'center' }}>
+                <Text style={{ fontSize: 14, color: theme.primary, fontWeight: '600' }}>Go Back</Text>
+              </Pressable>
+
+              <Pressable onPress={handleSendOTP} style={{ marginTop: 8, alignSelf: 'center' }}>
+                <Text style={{ fontSize: 14, color: theme.textSecondary }}>Resend Code</Text>
+              </Pressable>
+            </>
+          )}
 
           {step === 'credentials' ? (
             <Pressable onPress={() => router.push({ pathname: '/login', params: { role: userRole } })} style={{ marginTop: 20, alignSelf: 'center' }}>
@@ -450,12 +250,4 @@ const styles = StyleSheet.create({
   switchText: { fontSize: 14, color: theme.textSecondary },
   googleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 52, borderRadius: 14, borderWidth: 1.5, borderColor: theme.border, backgroundColor: '#FFF', marginBottom: 4 },
   googleBtnText: { fontSize: 15, fontWeight: '600', color: theme.textPrimary },
-  twoCol: { flexDirection: 'row', gap: 12 },
-  stepIndicator: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 8, gap: 0 },
-  stepDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: theme.border },
-  stepDotActive: { backgroundColor: theme.primary, width: 14, height: 14, borderRadius: 7 },
-  stepDotCompleted: { backgroundColor: theme.success },
-  stepLine: { width: 32, height: 2, backgroundColor: theme.border },
-  stepLineCompleted: { backgroundColor: theme.success },
-  stepLabel: { fontSize: 13, fontWeight: '600', color: theme.textMuted, textAlign: 'center', marginBottom: 20 },
 });

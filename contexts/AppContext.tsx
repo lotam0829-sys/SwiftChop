@@ -14,6 +14,7 @@ import {
 } from '../services/supabaseData';
 import { foodCategories } from '../services/mockData';
 import { config, calculateDeliveryFee } from '../constants/config';
+import * as Location from 'expo-location';
 
 // Re-export for backward compatibility
 export { foodCategories };
@@ -69,6 +70,10 @@ interface AppContextType {
 
   // Profile updates
   updateProfile: (updates: Partial<DbUserProfile>) => Promise<void>;
+
+  // Location
+  userLocation: { latitude: number; longitude: number } | null;
+  requestLocation: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType>({} as AppContextType);
@@ -90,6 +95,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [restaurantOrders, setRestaurantOrders] = useState<DbOrder[]>([]);
   const [restaurantMenuItems, setRestaurantMenuItems] = useState<DbMenuItem[]>([]);
   const [loadingRestaurantData, setLoadingRestaurantData] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
   const isAuthenticated = !!user;
   const isLoading = authLoading;
@@ -107,9 +113,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [user?.id]);
 
-  // Load restaurants on mount
+  // Load restaurants on mount and request location
   useEffect(() => {
     refreshRestaurants();
+    requestLocation();
   }, []);
 
   // Load cart from storage
@@ -339,6 +346,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRestaurantMenuItems(prev => prev.map(i => i.id === itemId ? { ...i, is_available: newAvailability } : i));
   };
 
+  const requestLocation = async () => {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      }
+    } catch (err) {
+      console.log('Location fetch error:', err);
+    }
+  };
+
   const updateProfile = async (updates: Partial<DbUserProfile>) => {
     if (!user?.id) return;
     await updateProfileDb(user.id, updates);
@@ -356,6 +375,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshRestaurantData, updateOrderStatus,
       addMenuItem, deleteMenuItemAction, toggleMenuItemAvailability,
       updateProfile,
+      userLocation, requestLocation,
     }}>
       {children}
     </AppContext.Provider>

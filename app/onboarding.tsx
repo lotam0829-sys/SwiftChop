@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Pressable, FlatList, TextInput,
-  KeyboardAvoidingView, Platform, ScrollView, Dimensions,
+  KeyboardAvoidingView, Platform, ScrollView, Dimensions, Linking,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -9,10 +9,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
+import * as DocumentPicker from 'expo-document-picker';
 import { theme } from '../constants/theme';
 import { useAuth, useAlert } from '@/template';
 import { useApp } from '../contexts/AppContext';
 import { updateUserProfile, createRestaurantForOwner } from '../services/supabaseData';
+import { getSupabaseClient } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
 
 const customerSlides = [
@@ -57,6 +60,8 @@ const restaurantSlides = [
   },
 ];
 
+type OnboardingPhase = 'slides' | 'location' | 'card' | 'restaurant_details' | 'certificate';
+
 export default function OnboardingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -69,9 +74,18 @@ export default function OnboardingScreen() {
   const slides = userRole === 'restaurant' ? restaurantSlides : customerSlides;
 
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [showForm, setShowForm] = useState(false);
+  const [phase, setPhase] = useState<OnboardingPhase>('slides');
   const [loading, setLoading] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+
+  // Location state
+  const [locationGranted, setLocationGranted] = useState(false);
+
+  // Customer card state (placeholder for Stripe)
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCVV, setCardCVV] = useState('');
+  const [cardName, setCardName] = useState('');
 
   // Restaurant form state
   const [restaurantName, setRestaurantName] = useState('');
@@ -81,6 +95,10 @@ export default function OnboardingScreen() {
   const [restaurantPhone, setRestaurantPhone] = useState('');
   const [minOrder, setMinOrder] = useState('2000');
   const [deliveryTime, setDeliveryTime] = useState('25-35 min');
+
+  // Certificate state
+  const [certificateFile, setCertificateFile] = useState<{ name: string; uri: string; size?: number } | null>(null);
+  const [uploadingCert, setUploadingCert] = useState(false);
 
   const [dimensions, setDimensions] = useState({ width: 375, height: 667 });
   useEffect(() => {
@@ -97,48 +115,152 @@ export default function OnboardingScreen() {
     if (currentIndex < slides.length - 1) {
       flatListRef.current?.scrollToIndex({ index: currentIndex + 1, animated: true });
     } else {
-      // Last slide
-      if (userRole === 'customer') {
-        handleCustomerComplete();
-      } else {
-        setShowForm(true);
-      }
+      // Last slide → go to location permission
+      setPhase('location');
     }
-  }, [currentIndex, slides.length, userRole]);
+  }, [currentIndex, slides.length]);
 
   const handleSkip = useCallback(() => {
-    if (userRole === 'customer') {
-      handleCustomerComplete();
-    } else {
-      setShowForm(true);
-    }
-  }, [userRole]);
+    setPhase('location');
+  }, []);
 
-  const handleCustomerComplete = async () => {
+  const handleRequestLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        setLocationGranted(true);
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (user?.id) {
+          await updateUserProfile(user.id, {
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          } as any);
+        }
+      }
+    } catch (err) {
+      console.log('Location error:', err);
+    }
+    // Proceed to next step regardless
+    if (userRole === 'customer') {
+      setPhase('card');
+    } else {
+      setPhase('restaurant_details');
+    }
+  };
+
+  const handleSkipLocation = () => {
+    if (userRole === 'customer') {
+      setPhase('card');
+    } else {
+      setPhase('restaurant_details');
+    }
+  };
+
+  // Customer: card step (placeholder)
+  const handleCardComplete = async () => {
+    if (!cardNumber.trim() || cardNumber.replace(/\s/g, '').length < 16) {
+      showAlert('Required', 'Please enter a valid 16-digit card number');
+      return;
+    }
+    if (!cardExpiry.trim() || cardExpiry.length < 5) {
+      showAlert('Required', 'Please enter a valid expiry (MM/YY)');
+      return;
+    }
+    if (!cardCVV.trim() || cardCVV.length < 3) {
+      showAlert('Required', 'Please enter your CVV');
+      return;
+    }
+    if (!cardName.trim()) {
+      showAlert('Required', 'Please enter the cardholder name');
+      return;
+    }
+
     if (!user?.id) return;
     setLoading(true);
     try {
-      await updateUserProfile(user.id, { role: 'customer', is_approved: true });
+      await updateUserProfile(user.id, { role: 'customer', is_approved: true } as any);
       await refreshProfile();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/(tabs)');
     } catch (err) {
       console.error('Customer onboarding error:', err);
-      showAlert('Error', 'Something went wrong. Please try again.');
+      showAlert('Error', 'Something went wrong.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRestaurantSubmit = async () => {
-    if (!user?.id) return;
+  // Restaurant: details step
+  const handleRestaurantDetailsNext = () => {
     if (!restaurantName.trim()) { showAlert('Required', 'Please enter your restaurant name'); return; }
     if (!restaurantAddress.trim()) { showAlert('Required', 'Please enter your restaurant address'); return; }
     if (!restaurantCuisine.trim()) { showAlert('Required', 'Please enter your cuisine type'); return; }
     if (!restaurantPhone.trim()) { showAlert('Required', 'Please enter a contact phone number'); return; }
+    setPhase('certificate');
+  };
+
+  // Pick certificate PDF
+  const handlePickCertificate = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        setCertificateFile({ name: file.name, uri: file.uri, size: file.size });
+      }
+    } catch (err) {
+      console.error('Document picker error:', err);
+      showAlert('Error', 'Failed to pick document');
+    }
+  };
+
+  // Upload certificate and complete restaurant onboarding
+  const handleRestaurantComplete = async () => {
+    if (!certificateFile) {
+      showAlert('Required', 'Please upload your Business Registration Certificate (CAC) before continuing.');
+      return;
+    }
+    if (!user?.id) return;
 
     setLoading(true);
     try {
+      // Upload certificate to storage
+      let certificateUrl: string | null = null;
+      setUploadingCert(true);
+
+      const supabase = getSupabaseClient();
+      const fileExt = 'pdf';
+      const filePath = `${user.id}/business-certificate.${fileExt}`;
+
+      // Read file as blob for upload
+      const response = await fetch(certificateFile.uri);
+      const blob = await response.blob();
+
+      // Convert blob to ArrayBuffer
+      const arrayBuffer = await new Response(blob).arrayBuffer();
+
+      const { error: uploadError } = await supabase.storage
+        .from('certificates')
+        .upload(filePath, arrayBuffer, {
+          contentType: 'application/pdf',
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        showAlert('Upload Failed', 'Could not upload certificate. Please try again.');
+        setLoading(false);
+        setUploadingCert(false);
+        return;
+      }
+
+      certificateUrl = filePath;
+      setUploadingCert(false);
+
+      // Update profile with restaurant details and certificate
       await updateUserProfile(user.id, {
         role: 'restaurant',
         restaurant_name: restaurantName.trim(),
@@ -149,6 +271,7 @@ export default function OnboardingScreen() {
         restaurant_min_order: parseInt(minOrder) || 2000,
         restaurant_delivery_time: deliveryTime.trim() || '25-35 min',
         is_approved: false,
+        business_certificate_url: certificateUrl,
       } as any);
 
       await createRestaurantForOwner(user.id, restaurantName.trim());
@@ -160,6 +283,7 @@ export default function OnboardingScreen() {
       showAlert('Error', 'Failed to set up restaurant. Please try again.');
     } finally {
       setLoading(false);
+      setUploadingCert(false);
     }
   };
 
@@ -170,20 +294,197 @@ export default function OnboardingScreen() {
   }).current;
 
   const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
-
   const isLastSlide = currentIndex === slides.length - 1;
 
-  // Restaurant Setup Form
-  if (showForm) {
+  // Format card number with spaces
+  const formatCardNumber = (text: string) => {
+    const cleaned = text.replace(/\D/g, '').slice(0, 16);
+    const groups = cleaned.match(/.{1,4}/g);
+    return groups ? groups.join(' ') : cleaned;
+  };
+
+  const formatExpiry = (text: string) => {
+    const cleaned = text.replace(/\D/g, '').slice(0, 4);
+    if (cleaned.length >= 3) return `${cleaned.slice(0, 2)}/${cleaned.slice(2)}`;
+    return cleaned;
+  };
+
+  // ====== LOCATION PERMISSION SCREEN ======
+  if (phase === 'location') {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[styles.container, { backgroundColor: '#0D0D0D' }]}>
+        <View style={[styles.centeredContent, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 24 }]}>
+          <View style={styles.locationIconWrap}>
+            <MaterialIcons name="my-location" size={48} color={theme.primary} />
+          </View>
+          <Text style={styles.phaseTitle}>Enable Location</Text>
+          <Text style={styles.phaseSubtitle}>
+            Allow SwiftChop to use your location so we can show restaurants near you and calculate accurate delivery fees.
+          </Text>
+
+          <View style={styles.locationBenefits}>
+            {[
+              { icon: 'near-me', text: 'Find restaurants close to you' },
+              { icon: 'speed', text: 'Faster, more accurate deliveries' },
+              { icon: 'savings', text: 'Fair delivery fees based on distance' },
+            ].map((b, i) => (
+              <View key={i} style={styles.benefitRow}>
+                <View style={styles.benefitIcon}>
+                  <MaterialIcons name={b.icon as any} size={20} color={theme.primary} />
+                </View>
+                <Text style={styles.benefitText}>{b.text}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={{ flex: 1 }} />
+
+          <PrimaryButton label="Allow Location Access" onPress={handleRequestLocation} variant="primary" icon={<MaterialIcons name="location-on" size={20} color="#FFF" />} />
+          <Pressable onPress={handleSkipLocation} style={{ marginTop: 16, alignSelf: 'center' }}>
+            <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', fontWeight: '500' }}>Skip for now</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  // ====== CUSTOMER: ADD CARD SCREEN ======
+  if (phase === 'card') {
+    return (
+      <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <ScrollView
             contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <Pressable onPress={() => setShowForm(false)} style={styles.formBackBtn}>
+            <Pressable onPress={() => setPhase('location')} style={styles.formBackBtn}>
+              <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
+            </Pressable>
+
+            <View style={styles.formHeader}>
+              <View style={[styles.formIconWrap, { backgroundColor: '#EBF5FF' }]}>
+                <MaterialIcons name="credit-card" size={32} color="#2563EB" />
+              </View>
+              <Text style={styles.formTitle}>Add Payment Card</Text>
+              <Text style={styles.formSubtitle}>Add a debit or credit card for fast, seamless checkout. Your card details are securely encrypted.</Text>
+            </View>
+
+            {/* Card Preview */}
+            <View style={styles.cardPreview}>
+              <LinearGradient
+                colors={['#1A1A2E', '#16213E']}
+                style={styles.cardGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <View style={styles.cardTopRow}>
+                  <MaterialIcons name="credit-card" size={28} color="rgba(255,255,255,0.8)" />
+                  <MaterialIcons name="contactless" size={24} color="rgba(255,255,255,0.6)" />
+                </View>
+                <Text style={styles.cardPreviewNumber}>
+                  {cardNumber || '\u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022'}
+                </Text>
+                <View style={styles.cardBottomRow}>
+                  <View>
+                    <Text style={styles.cardSmallLabel}>CARDHOLDER</Text>
+                    <Text style={styles.cardPreviewName}>{cardName || 'YOUR NAME'}</Text>
+                  </View>
+                  <View>
+                    <Text style={styles.cardSmallLabel}>EXPIRES</Text>
+                    <Text style={styles.cardPreviewName}>{cardExpiry || 'MM/YY'}</Text>
+                  </View>
+                </View>
+              </LinearGradient>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Card Number</Text>
+              <View style={styles.inputWrap}>
+                <MaterialIcons name="credit-card" size={20} color={theme.textMuted} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="1234 5678 9012 3456"
+                  placeholderTextColor={theme.textMuted}
+                  value={cardNumber}
+                  onChangeText={(t) => setCardNumber(formatCardNumber(t))}
+                  keyboardType="number-pad"
+                  maxLength={19}
+                />
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.inputLabel}>Expiry Date</Text>
+                <View style={styles.inputWrap}>
+                  <TextInput
+                    style={[styles.input, { textAlign: 'center' }]}
+                    placeholder="MM/YY"
+                    placeholderTextColor={theme.textMuted}
+                    value={cardExpiry}
+                    onChangeText={(t) => setCardExpiry(formatExpiry(t))}
+                    keyboardType="number-pad"
+                    maxLength={5}
+                  />
+                </View>
+              </View>
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.inputLabel}>CVV</Text>
+                <View style={styles.inputWrap}>
+                  <TextInput
+                    style={[styles.input, { textAlign: 'center' }]}
+                    placeholder="\u2022\u2022\u2022"
+                    placeholderTextColor={theme.textMuted}
+                    value={cardCVV}
+                    onChangeText={(t) => setCardCVV(t.replace(/\D/g, '').slice(0, 4))}
+                    keyboardType="number-pad"
+                    maxLength={4}
+                    secureTextEntry
+                  />
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Cardholder Name</Text>
+              <View style={styles.inputWrap}>
+                <MaterialIcons name="person" size={20} color={theme.textMuted} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Name on card"
+                  placeholderTextColor={theme.textMuted}
+                  value={cardName}
+                  onChangeText={setCardName}
+                  autoCapitalize="characters"
+                />
+              </View>
+            </View>
+
+            <View style={styles.secureNote}>
+              <MaterialIcons name="lock" size={16} color={theme.success} />
+              <Text style={styles.secureNoteText}>Your card is secured with 256-bit encryption. Card will be charged only when you place an order.</Text>
+            </View>
+
+            <View style={{ height: 12 }} />
+            <PrimaryButton label={loading ? 'Setting up...' : 'Complete Setup'} onPress={handleCardComplete} loading={loading} variant="dark" />
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
+    );
+  }
+
+  // ====== RESTAURANT: DETAILS FORM ======
+  if (phase === 'restaurant_details') {
+    return (
+      <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView
+            contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <Pressable onPress={() => setPhase('location')} style={styles.formBackBtn}>
               <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
             </Pressable>
 
@@ -191,15 +492,21 @@ export default function OnboardingScreen() {
               <View style={styles.formIconWrap}>
                 <MaterialIcons name="storefront" size={32} color={theme.primary} />
               </View>
-              <Text style={styles.formTitle}>Set Up Your Restaurant</Text>
-              <Text style={styles.formSubtitle}>Complete your profile to start receiving orders. You will be reviewed and approved shortly.</Text>
+              <Text style={styles.formTitle}>Restaurant Details</Text>
+              <Text style={styles.formSubtitle}>Complete your profile to start receiving orders. All fields marked * are required.</Text>
+            </View>
+
+            {/* Step indicator */}
+            <View style={styles.stepRow}>
+              <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>1. Details</Text></View>
+              <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>2. Certificate</Text></View>
             </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Restaurant Name *</Text>
               <View style={styles.inputWrap}>
                 <MaterialIcons name="storefront" size={20} color={theme.textMuted} style={styles.inputIcon} />
-                <TextInput style={styles.input} placeholder="e.g. Mama Nkechi's Kitchen" placeholderTextColor={theme.textMuted} value={restaurantName} onChangeText={setRestaurantName} />
+                <TextInput style={styles.input} placeholder="e.g. Mama Nkechi Kitchen" placeholderTextColor={theme.textMuted} value={restaurantName} onChangeText={setRestaurantName} />
               </View>
             </View>
 
@@ -235,9 +542,9 @@ export default function OnboardingScreen() {
               </View>
             </View>
 
-            <View style={styles.rowInputs}>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
               <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.inputLabel}>Min. Order (₦)</Text>
+                <Text style={styles.inputLabel}>Min. Order (naira)</Text>
                 <View style={styles.inputWrap}>
                   <TextInput style={[styles.input, { textAlign: 'center' }]} placeholder="2000" placeholderTextColor={theme.textMuted} value={minOrder} onChangeText={setMinOrder} keyboardType="number-pad" />
                 </View>
@@ -251,7 +558,108 @@ export default function OnboardingScreen() {
             </View>
 
             <View style={{ height: 12 }} />
-            <PrimaryButton label={loading ? 'Setting up...' : 'Complete Setup'} onPress={handleRestaurantSubmit} loading={loading} variant="dark" />
+            <PrimaryButton label="Next: Upload Certificate" onPress={handleRestaurantDetailsNext} variant="dark" icon={<MaterialIcons name="arrow-forward" size={20} color="#FFF" />} />
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
+    );
+  }
+
+  // ====== RESTAURANT: CERTIFICATE UPLOAD ======
+  if (phase === 'certificate') {
+    return (
+      <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView
+            contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <Pressable onPress={() => setPhase('restaurant_details')} style={styles.formBackBtn}>
+              <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
+            </Pressable>
+
+            <View style={styles.formHeader}>
+              <View style={[styles.formIconWrap, { backgroundColor: '#FEF3C7' }]}>
+                <MaterialIcons name="verified" size={32} color="#D97706" />
+              </View>
+              <Text style={styles.formTitle}>Business Certificate</Text>
+              <Text style={styles.formSubtitle}>Upload your CAC Business Registration Certificate to verify your restaurant. This is required before your restaurant can go live.</Text>
+            </View>
+
+            {/* Step indicator */}
+            <View style={styles.stepRow}>
+              <View style={[styles.stepPill, { backgroundColor: theme.successLight }]}>
+                <MaterialIcons name="check" size={14} color={theme.success} />
+                <Text style={[styles.stepPillText, { color: theme.success }]}>1. Details</Text>
+              </View>
+              <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>2. Certificate</Text></View>
+            </View>
+
+            {/* CAC Guide Link */}
+            <Pressable
+              onPress={() => Linking.openURL('https://icrp.cac.gov.ng/assets/docs/crp-user-guide.pdf')}
+              style={styles.cacGuideCard}
+            >
+              <View style={styles.cacGuideIcon}>
+                <MaterialIcons name="menu-book" size={24} color="#2563EB" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cacGuideTitle}>CAC Registration Guide</Text>
+                <Text style={styles.cacGuideSubtitle}>New to CAC? Read the official user guide to register your business.</Text>
+              </View>
+              <MaterialIcons name="open-in-new" size={18} color="#2563EB" />
+            </Pressable>
+
+            {/* Upload Area */}
+            <Pressable onPress={handlePickCertificate} style={[styles.uploadArea, certificateFile ? styles.uploadAreaDone : null]}>
+              {certificateFile ? (
+                <View style={styles.uploadedFileRow}>
+                  <View style={styles.pdfIcon}>
+                    <MaterialIcons name="picture-as-pdf" size={28} color="#EF4444" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.uploadedFileName} numberOfLines={1}>{certificateFile.name}</Text>
+                    <Text style={styles.uploadedFileSize}>
+                      {certificateFile.size ? `${(certificateFile.size / 1024).toFixed(0)} KB` : 'PDF Document'}
+                    </Text>
+                  </View>
+                  <Pressable onPress={() => setCertificateFile(null)} hitSlop={12}>
+                    <MaterialIcons name="close" size={20} color={theme.textMuted} />
+                  </Pressable>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.uploadIconCircle}>
+                    <MaterialIcons name="cloud-upload" size={32} color={theme.primary} />
+                  </View>
+                  <Text style={styles.uploadTitle}>Tap to upload certificate</Text>
+                  <Text style={styles.uploadSubtitle}>PDF format only, max 10MB</Text>
+                </>
+              )}
+            </Pressable>
+
+            <View style={styles.certRequirements}>
+              <Text style={styles.certReqTitle}>What we accept:</Text>
+              {[
+                'CAC Certificate of Registration',
+                'Business Name Registration (BN Form)',
+                'Certificate of Incorporation',
+              ].map((req, i) => (
+                <View key={i} style={styles.certReqRow}>
+                  <MaterialIcons name="check-circle" size={16} color={theme.success} />
+                  <Text style={styles.certReqText}>{req}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={{ height: 16 }} />
+            <PrimaryButton
+              label={loading ? (uploadingCert ? 'Uploading certificate...' : 'Setting up...') : 'Complete Setup'}
+              onPress={handleRestaurantComplete}
+              loading={loading}
+              variant="dark"
+            />
 
             <View style={styles.formNote}>
               <MaterialIcons name="info-outline" size={16} color={theme.textMuted} />
@@ -263,7 +671,7 @@ export default function OnboardingScreen() {
     );
   }
 
-  // Onboarding Slides
+  // ====== ONBOARDING SLIDES ======
   return (
     <View style={[styles.container, { backgroundColor: '#0D0D0D' }]}>
       <FlatList
@@ -298,9 +706,7 @@ export default function OnboardingScreen() {
         )}
       />
 
-      {/* Content overlay */}
       <View style={[styles.overlay, { paddingBottom: insets.bottom + 20 }]} pointerEvents="box-none">
-        {/* Skip button */}
         <View style={[styles.skipRow, { paddingTop: insets.top + 8 }]}>
           <View />
           {!isLastSlide ? (
@@ -312,7 +718,6 @@ export default function OnboardingScreen() {
 
         <View style={styles.spacer} />
 
-        {/* Text content */}
         <View style={styles.textContent}>
           <View style={styles.iconBadge}>
             <MaterialIcons name={slides[currentIndex].icon as any} size={22} color="#FFF" />
@@ -321,40 +726,20 @@ export default function OnboardingScreen() {
           <Text style={styles.slideSubtitle}>{slides[currentIndex].subtitle}</Text>
         </View>
 
-        {/* Dots */}
         <View style={styles.dotsRow}>
           {slides.map((_, idx) => (
-            <View
-              key={idx}
-              style={[
-                styles.dot,
-                idx === currentIndex ? styles.dotActive : null,
-              ]}
-            />
+            <View key={idx} style={[styles.dot, idx === currentIndex ? styles.dotActive : null]} />
           ))}
         </View>
 
-        {/* Action button */}
         <View style={styles.actionRow}>
           <Pressable
             onPress={handleNext}
-            style={({ pressed }) => [
-              styles.mainBtn,
-              pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
-            ]}
+            style={({ pressed }) => [styles.mainBtn, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
             disabled={loading}
           >
-            <Text style={styles.mainBtnText}>
-              {isLastSlide
-                ? (userRole === 'customer' ? 'Get Started' : 'Set Up Your Restaurant')
-                : 'Next'
-              }
-            </Text>
-            <MaterialIcons
-              name={isLastSlide ? (userRole === 'customer' ? 'celebration' : 'storefront') : 'arrow-forward'}
-              size={20}
-              color="#FFF"
-            />
+            <Text style={styles.mainBtnText}>{isLastSlide ? 'Continue' : 'Next'}</Text>
+            <MaterialIcons name="arrow-forward" size={20} color="#FFF" />
           </Pressable>
         </View>
       </View>
@@ -365,137 +750,82 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF' },
 
-  // Slide overlay
-  imageGradient: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '55%',
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'space-between',
-  },
-  skipRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  skipBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
+  // Slides
+  imageGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '55%' },
+  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-between' },
+  skipRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 },
+  skipBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.15)' },
   skipText: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.8)' },
   spacer: { flex: 1 },
-  textContent: {
-    paddingHorizontal: 28,
-    marginBottom: 24,
-  },
-  iconBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: theme.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  slideTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#FFF',
-    marginBottom: 10,
-    letterSpacing: -0.5,
-  },
-  slideSubtitle: {
-    fontSize: 16,
-    fontWeight: '400',
-    color: 'rgba(255,255,255,0.75)',
-    lineHeight: 24,
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 24,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-  },
-  dotActive: {
-    width: 28,
-    backgroundColor: theme.primary,
-  },
-  actionRow: {
-    paddingHorizontal: 28,
-  },
-  mainBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: theme.primary,
-    height: 56,
-    borderRadius: 16,
-  },
-  mainBtnText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#FFF',
-  },
+  textContent: { paddingHorizontal: 28, marginBottom: 24 },
+  iconBadge: { width: 44, height: 44, borderRadius: 14, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  slideTitle: { fontSize: 28, fontWeight: '800', color: '#FFF', marginBottom: 10, letterSpacing: -0.5 },
+  slideSubtitle: { fontSize: 16, fontWeight: '400', color: 'rgba(255,255,255,0.75)', lineHeight: 24 },
+  dotsRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 24 },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.25)' },
+  dotActive: { width: 28, backgroundColor: theme.primary },
+  actionRow: { paddingHorizontal: 28 },
+  mainBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: theme.primary, height: 56, borderRadius: 16 },
+  mainBtnText: { fontSize: 17, fontWeight: '700', color: '#FFF' },
 
-  // Restaurant form
+  // Location
+  centeredContent: { flex: 1, paddingHorizontal: 28, alignItems: 'center' },
+  locationIconWrap: { width: 96, height: 96, borderRadius: 48, backgroundColor: 'rgba(255,107,0,0.12)', alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
+  phaseTitle: { fontSize: 28, fontWeight: '800', color: '#FFF', marginBottom: 12, textAlign: 'center' },
+  phaseSubtitle: { fontSize: 16, color: 'rgba(255,255,255,0.65)', lineHeight: 24, textAlign: 'center', paddingHorizontal: 8 },
+  locationBenefits: { marginTop: 32, width: '100%', gap: 16 },
+  benefitRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  benefitIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: 'rgba(255,107,0,0.1)', alignItems: 'center', justifyContent: 'center' },
+  benefitText: { fontSize: 15, color: 'rgba(255,255,255,0.8)', fontWeight: '500' },
+
+  // Form shared
   formScroll: { paddingHorizontal: 24 },
-  formBackBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: theme.backgroundSecondary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-  },
-  formHeader: { marginTop: 20, marginBottom: 28, alignItems: 'center' },
-  formIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: theme.primaryFaint,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
+  formBackBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  formHeader: { marginTop: 20, marginBottom: 24, alignItems: 'center' },
+  formIconWrap: { width: 64, height: 64, borderRadius: 20, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   formTitle: { fontSize: 24, fontWeight: '700', color: theme.textPrimary, marginBottom: 8, textAlign: 'center' },
   formSubtitle: { fontSize: 14, color: theme.textSecondary, textAlign: 'center', lineHeight: 21, paddingHorizontal: 8 },
   inputGroup: { marginBottom: 16 },
   inputLabel: { fontSize: 14, fontWeight: '600', color: theme.textPrimary, marginBottom: 8 },
-  inputWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: theme.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    height: 52,
-    backgroundColor: theme.backgroundSecondary,
-  },
+  inputWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, height: 52, backgroundColor: theme.backgroundSecondary },
   inputIcon: { marginRight: 10 },
   input: { flex: 1, fontSize: 15, color: theme.textPrimary },
-  rowInputs: { flexDirection: 'row', gap: 12 },
-  formNote: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 20,
-    paddingHorizontal: 4,
-  },
+  formNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 20, paddingHorizontal: 4 },
   formNoteText: { flex: 1, fontSize: 12, color: theme.textMuted, lineHeight: 17 },
+
+  // Step indicator
+  stepRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+  stepPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.backgroundSecondary },
+  stepPillActive: { backgroundColor: theme.primaryFaint },
+  stepPillText: { fontSize: 13, fontWeight: '600', color: theme.primary },
+
+  // Card preview
+  cardPreview: { marginBottom: 24 },
+  cardGradient: { borderRadius: 16, padding: 24, height: 190, justifyContent: 'space-between' },
+  cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cardPreviewNumber: { fontSize: 20, fontWeight: '600', color: '#FFF', letterSpacing: 2 },
+  cardBottomRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  cardSmallLabel: { fontSize: 9, color: 'rgba(255,255,255,0.5)', letterSpacing: 1, marginBottom: 4 },
+  cardPreviewName: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.9)' },
+  secureNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 4, marginTop: 4 },
+  secureNoteText: { flex: 1, fontSize: 12, color: theme.textMuted, lineHeight: 17 },
+
+  // Certificate
+  cacGuideCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 14, backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 20 },
+  cacGuideIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },
+  cacGuideTitle: { fontSize: 15, fontWeight: '700', color: '#1D4ED8', marginBottom: 2 },
+  cacGuideSubtitle: { fontSize: 12, color: '#6B7280', lineHeight: 17 },
+  uploadArea: { borderWidth: 2, borderStyle: 'dashed', borderColor: theme.border, borderRadius: 16, padding: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 20, backgroundColor: theme.backgroundSecondary },
+  uploadAreaDone: { borderColor: theme.success, borderStyle: 'solid', backgroundColor: '#F0FDF4', padding: 16 },
+  uploadIconCircle: { width: 64, height: 64, borderRadius: 32, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  uploadTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginBottom: 4 },
+  uploadSubtitle: { fontSize: 13, color: theme.textMuted },
+  uploadedFileRow: { flexDirection: 'row', alignItems: 'center', gap: 12, width: '100%' },
+  pdfIcon: { width: 48, height: 48, borderRadius: 12, backgroundColor: '#FEE2E2', alignItems: 'center', justifyContent: 'center' },
+  uploadedFileName: { fontSize: 15, fontWeight: '600', color: theme.textPrimary },
+  uploadedFileSize: { fontSize: 13, color: theme.textMuted, marginTop: 2 },
+  certRequirements: { marginBottom: 8 },
+  certReqTitle: { fontSize: 14, fontWeight: '600', color: theme.textPrimary, marginBottom: 10 },
+  certReqRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  certReqText: { fontSize: 14, color: theme.textSecondary },
 });

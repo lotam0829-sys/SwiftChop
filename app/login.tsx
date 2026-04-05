@@ -7,14 +7,13 @@ import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
 import { useAuth, useAlert } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
-import { fetchUserProfile, updateUserProfile, createRestaurantForOwner } from '../services/supabaseData';
 import { useApp } from '../contexts/AppContext';
 
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { role } = useLocalSearchParams<{ role: string }>();
-  const { user, signInWithPassword, signInWithGoogle, logout, operationLoading } = useAuth();
+  const { user, signInWithPassword, signInWithGoogle, operationLoading } = useAuth();
   const { showAlert } = useAlert();
   const { refreshProfile } = useApp();
   const userRole = (role as 'customer' | 'restaurant') || 'customer';
@@ -26,7 +25,7 @@ export default function LoginScreen() {
   const [settingUp, setSettingUp] = useState(false);
   const prevUserId = useRef<string | null>(null);
 
-  // Detect when a NEW user is created via Google Sign-In
+  // Detect Google Sign-In completion
   useEffect(() => {
     if (!googleAuthPending || !user?.id || user.id === prevUserId.current) return;
 
@@ -35,19 +34,16 @@ export default function LoginScreen() {
         setSettingUp(true);
         const createdAt = user.created_at ? new Date(user.created_at) : null;
         const now = new Date();
-        const isNewUser = createdAt && (now.getTime() - createdAt.getTime()) < 120000; // created within 2 min
+        const isNewUser = createdAt && (now.getTime() - createdAt.getTime()) < 120000;
 
         if (isNewUser) {
-          // New Google user → route to role-based onboarding
+          // New user → route to onboarding with chosen role
           router.replace({ pathname: '/onboarding', params: { role: userRole } });
-          setGoogleAuthPending(false);
-          setSettingUp(false);
-          return;
+        } else {
+          // Existing user → refresh and let layout routing handle
+          await refreshProfile();
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
-
-        // Existing user — just refresh profile and let routing handle it
-        await refreshProfile();
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (err) {
         console.error('Post-Google auth error:', err);
       } finally {
@@ -59,7 +55,6 @@ export default function LoginScreen() {
     handlePostGoogleAuth();
   }, [user?.id, googleAuthPending]);
 
-  // Track previous user ID to detect auth state changes
   useEffect(() => {
     prevUserId.current = user?.id || null;
   }, [user?.id]);
@@ -115,7 +110,6 @@ export default function LoginScreen() {
             <Text style={styles.subtitle}>Sign in to your SwiftChop account</Text>
           </View>
 
-          {/* Google Sign-In */}
           <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={isProcessing}>
             <Ionicons name="logo-google" size={20} color="#DB4437" />
             <Text style={styles.googleBtnText}>Continue with Google</Text>
@@ -127,37 +121,19 @@ export default function LoginScreen() {
             <View style={styles.dividerLine} />
           </View>
 
-          {/* Email */}
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Email address</Text>
             <View style={styles.inputWrap}>
               <MaterialIcons name="email" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-              <TextInput
-                style={styles.input}
-                placeholder="you@example.com"
-                placeholderTextColor={theme.textMuted}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-              />
+              <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={theme.textMuted} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoComplete="email" />
             </View>
           </View>
 
-          {/* Password */}
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Password</Text>
             <View style={styles.inputWrap}>
               <MaterialIcons name="lock" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-              <TextInput
-                style={[styles.input, { flex: 1 }]}
-                placeholder="Enter your password"
-                placeholderTextColor={theme.textMuted}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-              />
+              <TextInput style={[styles.input, { flex: 1 }]} placeholder="Enter your password" placeholderTextColor={theme.textMuted} value={password} onChangeText={setPassword} secureTextEntry={!showPassword} />
               <Pressable onPress={() => setShowPassword(!showPassword)}>
                 <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textMuted} />
               </Pressable>
@@ -165,13 +141,9 @@ export default function LoginScreen() {
           </View>
 
           <View style={{ height: 24 }} />
-
           <PrimaryButton label={settingUp ? 'Signing in...' : 'Sign In'} onPress={handleLogin} loading={isProcessing} variant="dark" />
 
-          <Pressable
-            onPress={() => router.push({ pathname: '/signup', params: { role: userRole } })}
-            style={{ marginTop: 20, alignSelf: 'center' }}
-          >
+          <Pressable onPress={() => router.push({ pathname: '/signup', params: { role: userRole } })} style={{ marginTop: 20, alignSelf: 'center' }}>
             <Text style={styles.switchText}>
               {"Don't have an account? "}<Text style={{ color: theme.primary, fontWeight: '600' }}>Sign up</Text>
             </Text>
