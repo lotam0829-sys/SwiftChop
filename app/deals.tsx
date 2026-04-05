@@ -10,6 +10,7 @@ import { theme } from '../constants/theme';
 import { useApp } from '../contexts/AppContext';
 import { getImage } from '../constants/images';
 import { DbMenuItem, fetchAllMenuItems } from '../services/supabaseData';
+import { isBogoActive, getBogoTimeRemaining, formatBogoDuration } from '../constants/timeUtils';
 
 // Mock BOGO data to supplement real BOGO items
 const MOCK_BOGO_ITEMS: Array<{
@@ -108,6 +109,7 @@ type DealItem = {
   restaurant_id: string;
   category: string;
   bogo_description: string;
+  bogo_end: string | null;
   is_mock: boolean;
 };
 
@@ -126,10 +128,10 @@ export default function DealsScreen() {
   const loadDeals = async () => {
     setLoading(true);
     try {
-      // Fetch real BOGO items from DB
+      // Fetch real BOGO items from DB — only show active ones
       const { data: realItems } = await fetchAllMenuItems();
       const realBogo: DealItem[] = (realItems || [])
-        .filter((item: any) => item.is_bogo)
+        .filter((item: any) => item.is_bogo && isBogoActive(item.bogo_start, item.bogo_end))
         .map((item: any) => {
           const rest = restaurants.find(r => r.id === item.restaurant_id);
           return {
@@ -142,6 +144,7 @@ export default function DealsScreen() {
             restaurant_id: item.restaurant_id,
             category: item.category,
             bogo_description: item.bogo_description || 'Buy 1, Get 1 FREE!',
+            bogo_end: item.bogo_end || null,
             is_mock: false,
           };
         });
@@ -149,6 +152,7 @@ export default function DealsScreen() {
       // Combine real BOGO items with mock data
       const mockDeals: DealItem[] = MOCK_BOGO_ITEMS.map(m => ({
         ...m,
+        bogo_end: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
         is_mock: true,
       }));
 
@@ -156,7 +160,7 @@ export default function DealsScreen() {
     } catch (err) {
       console.log('Failed to load deals:', err);
       // Fallback to mock data only
-      setAllDeals(MOCK_BOGO_ITEMS.map(m => ({ ...m, is_mock: true })));
+      setAllDeals(MOCK_BOGO_ITEMS.map(m => ({ ...m, bogo_end: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), is_mock: true })));
     } finally {
       setLoading(false);
     }
@@ -201,49 +205,58 @@ export default function DealsScreen() {
     );
   };
 
-  const renderDeal = ({ item }: { item: DealItem }) => (
-    <Pressable
-      onPress={() => {
-        if (!item.is_mock) {
-          router.push(`/restaurant/${item.restaurant_id}`);
-        }
-      }}
-      style={styles.dealCard}
-    >
-      <View style={styles.dealImageWrap}>
-        <Image source={getItemImage(item.image_key)} style={styles.dealImage} contentFit="cover" />
-        <View style={styles.bogoBadge}>
-          <MaterialIcons name="local-offer" size={12} color="#FFF" />
-          <Text style={styles.bogoText}>BOGO</Text>
-        </View>
-        {item.is_mock ? (
-          <View style={styles.sampleBadge}>
-            <Text style={styles.sampleText}>Sample</Text>
+  const renderDeal = ({ item }: { item: DealItem }) => {
+    const timeRemaining = item.bogo_end ? getBogoTimeRemaining(item.bogo_end) : null;
+    return (
+      <Pressable
+        onPress={() => {
+          if (!item.is_mock) {
+            router.push(`/restaurant/${item.restaurant_id}`);
+          }
+        }}
+        style={styles.dealCard}
+      >
+        <View style={styles.dealImageWrap}>
+          <Image source={getItemImage(item.image_key)} style={styles.dealImage} contentFit="cover" />
+          <View style={styles.bogoBadge}>
+            <MaterialIcons name="local-offer" size={12} color="#FFF" />
+            <Text style={styles.bogoText}>BOGO</Text>
           </View>
-        ) : null}
-      </View>
-      <View style={styles.dealInfo}>
-        <Text style={styles.dealName} numberOfLines={1}>{item.name}</Text>
-        <Text style={styles.dealDesc} numberOfLines={2}>{item.description}</Text>
-        <View style={styles.dealBogoRow}>
-          <MaterialIcons name="celebration" size={14} color="#E65100" />
-          <Text style={styles.dealBogoDesc}>{item.bogo_description}</Text>
-        </View>
-        <View style={styles.dealFooter}>
-          <View>
-            <View style={styles.dealPriceRow}>
-              <Text style={styles.dealPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
-              <Text style={styles.dealFreeLabel}>+ 1 FREE</Text>
+          {item.is_mock ? (
+            <View style={styles.sampleBadge}>
+              <Text style={styles.sampleText}>Sample</Text>
             </View>
-            <Text style={styles.dealRestaurant}>{item.restaurant_name}</Text>
-          </View>
-          <Pressable onPress={() => handleAddToCart(item)} style={[styles.addDealBtn, item.is_mock && { opacity: 0.5 }]}>
-            <MaterialIcons name="add" size={20} color="#FFF" />
-          </Pressable>
+          ) : null}
         </View>
-      </View>
-    </Pressable>
-  );
+        <View style={styles.dealInfo}>
+          <Text style={styles.dealName} numberOfLines={1}>{item.name}</Text>
+          <Text style={styles.dealDesc} numberOfLines={2}>{item.description}</Text>
+          <View style={styles.dealBogoRow}>
+            <MaterialIcons name="celebration" size={14} color="#E65100" />
+            <Text style={styles.dealBogoDesc}>{item.bogo_description}</Text>
+          </View>
+          {timeRemaining && timeRemaining !== 'Expired' ? (
+            <View style={styles.dealTimerRow}>
+              <MaterialIcons name="timer" size={13} color="#D97706" />
+              <Text style={styles.dealTimerText}>{timeRemaining}</Text>
+            </View>
+          ) : null}
+          <View style={styles.dealFooter}>
+            <View>
+              <View style={styles.dealPriceRow}>
+                <Text style={styles.dealPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
+                <Text style={styles.dealFreeLabel}>+ 1 FREE</Text>
+              </View>
+              <Text style={styles.dealRestaurant}>{item.restaurant_name}</Text>
+            </View>
+            <Pressable onPress={() => handleAddToCart(item)} style={[styles.addDealBtn, item.is_mock && { opacity: 0.5 }]}>
+              <MaterialIcons name="add" size={20} color="#FFF" />
+            </Pressable>
+          </View>
+        </View>
+      </Pressable>
+    );
+  };
 
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
@@ -337,6 +350,8 @@ const styles = StyleSheet.create({
   dealFreeLabel: { fontSize: 10, fontWeight: '800', color: '#059669', backgroundColor: '#D1FAE5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   dealRestaurant: { fontSize: 11, color: theme.textMuted, marginTop: 2 },
   addDealBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center' },
+  dealTimerRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#FEF3C7' },
+  dealTimerText: { fontSize: 11, fontWeight: '700', color: '#D97706' },
   emptyState: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginTop: 12 },
   emptySubtitle: { fontSize: 14, color: theme.textSecondary, marginTop: 4 },

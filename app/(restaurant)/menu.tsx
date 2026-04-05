@@ -16,6 +16,7 @@ import { getSupabaseClient } from '@/template';
 import PrimaryButton from '../../components/ui/PrimaryButton';
 import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
+import { isBogoActive, formatBogoDuration, getBogoTimeRemaining, BOGO_DURATION_PRESETS, formatNigerianDateTime, NIGERIA_TIMEZONE } from '../../constants/timeUtils';
 
 const DEFAULT_CATEGORIES = ['nigerian', 'rice', 'grilled', 'soups', 'snacks', 'drinks'];
 
@@ -38,6 +39,9 @@ export default function RestaurantMenuScreen() {
   const [newCategory, setNewCategory] = useState('');
   const [newPopular, setNewPopular] = useState(false);
   const [newBogo, setNewBogo] = useState(false);
+  const [bogoStart, setBogoStart] = useState<Date | null>(null);
+  const [bogoEnd, setBogoEnd] = useState<Date | null>(null);
+  const [selectedBogoPreset, setSelectedBogoPreset] = useState<string | null>(null);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
@@ -76,6 +80,9 @@ export default function RestaurantMenuScreen() {
     setNewCategory(allCategories[0] || 'nigerian');
     setNewPopular(false);
     setNewBogo(false);
+    setBogoStart(null);
+    setBogoEnd(null);
+    setSelectedBogoPreset(null);
     setSelectedImageUri(null);
   };
 
@@ -195,7 +202,9 @@ export default function RestaurantMenuScreen() {
       image_key: imageKey,
       is_available: true,
       is_popular: newPopular,
-      is_bogo: newBogo,
+      is_bogo: newBogo && bogoEnd !== null,
+      bogo_start: newBogo && bogoStart ? bogoStart.toISOString() : null,
+      bogo_end: newBogo && bogoEnd ? bogoEnd.toISOString() : null,
       category: newCategory || allCategories[0] || 'nigerian',
     } as any);
     setAddLoading(false);
@@ -226,7 +235,9 @@ export default function RestaurantMenuScreen() {
       price: parseInt(newPrice) || 0,
       image_key: imageKey,
       is_popular: newPopular,
-      is_bogo: newBogo,
+      is_bogo: newBogo && bogoEnd !== null,
+      bogo_start: newBogo && bogoStart ? bogoStart.toISOString() : null,
+      bogo_end: newBogo && bogoEnd ? bogoEnd.toISOString() : null,
       category: newCategory,
     } as any);
 
@@ -253,6 +264,12 @@ export default function RestaurantMenuScreen() {
     setNewCategory(item.category);
     setNewPopular(item.is_popular);
     setNewBogo((item as any).is_bogo || false);
+    // Restore BOGO dates if they exist
+    const itemBogoStart = (item as any).bogo_start;
+    const itemBogoEnd = (item as any).bogo_end;
+    setBogoStart(itemBogoStart ? new Date(itemBogoStart) : null);
+    setBogoEnd(itemBogoEnd ? new Date(itemBogoEnd) : null);
+    setSelectedBogoPreset(null);
     setSelectedImageUri(null);
     setShowEditModal(true);
   };
@@ -267,39 +284,52 @@ export default function RestaurantMenuScreen() {
   const availableCount = restaurantMenuItems.filter(i => i.is_available).length;
   const unavailableCount = restaurantMenuItems.length - availableCount;
 
-  const renderItem = ({ item }: { item: DbMenuItem }) => (
-    <View style={[styles.menuItem, !item.is_available && { opacity: 0.6 }]}>
-      <Image source={getItemImage(item.image_key)} style={styles.itemImage} contentFit="cover" />
-      <View style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-          {item.is_popular ? <MaterialIcons name="local-fire-department" size={14} color={theme.primary} /> : null}
-          {(item as any).is_bogo ? <View style={styles.bogoTag}><Text style={styles.bogoTagText}>BOGO</Text></View> : null}
-        </View>
-        <Text style={styles.itemDesc} numberOfLines={1}>{item.description}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-          <Text style={styles.itemPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
-          <View style={styles.categoryTag}>
-            <Text style={styles.categoryTagText}>{item.category}</Text>
+  const renderItem = ({ item }: { item: DbMenuItem }) => {
+    const itemBogoActive = (item as any).is_bogo && isBogoActive((item as any).bogo_start, (item as any).bogo_end);
+    const bogoRemaining = (item as any).is_bogo ? getBogoTimeRemaining((item as any).bogo_end) : null;
+    const bogoExpired = (item as any).is_bogo && (item as any).bogo_end && !isBogoActive((item as any).bogo_start, (item as any).bogo_end);
+
+    return (
+      <View style={[styles.menuItem, !item.is_available && { opacity: 0.6 }]}>
+        <Image source={getItemImage(item.image_key)} style={styles.itemImage} contentFit="cover" />
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+            {item.is_popular ? <MaterialIcons name="local-fire-department" size={14} color={theme.primary} /> : null}
+            {(item as any).is_bogo ? (
+              <View style={[styles.bogoTag, bogoExpired && { backgroundColor: '#FEE2E2' }]}>
+                <Text style={[styles.bogoTagText, bogoExpired && { color: '#EF4444' }]}>{bogoExpired ? 'BOGO Expired' : 'BOGO'}</Text>
+              </View>
+            ) : null}
           </View>
+          <Text style={styles.itemDesc} numberOfLines={1}>{item.description}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+            <Text style={styles.itemPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
+            <View style={styles.categoryTag}>
+              <Text style={styles.categoryTagText}>{item.category}</Text>
+            </View>
+          </View>
+          {itemBogoActive && bogoRemaining ? (
+            <Text style={styles.bogoRemainingText}>{bogoRemaining}</Text>
+          ) : null}
+        </View>
+        <View style={styles.itemActions}>
+          <Pressable onPress={() => handleEdit(item)} style={styles.editBtn}>
+            <MaterialIcons name="edit" size={18} color="#3B82F6" />
+          </Pressable>
+          <Pressable
+            onPress={() => { Haptics.selectionAsync(); toggleMenuItemAvailability(item.id); }}
+            style={[styles.toggleBtn, item.is_available && styles.toggleBtnActive]}
+          >
+            <MaterialIcons name={item.is_available ? 'visibility' : 'visibility-off'} size={18} color={item.is_available ? '#10B981' : '#999'} />
+          </Pressable>
+          <Pressable onPress={() => handleDelete(item)} style={styles.deleteBtn}>
+            <MaterialIcons name="delete-outline" size={18} color="#EF4444" />
+          </Pressable>
         </View>
       </View>
-      <View style={styles.itemActions}>
-        <Pressable onPress={() => handleEdit(item)} style={styles.editBtn}>
-          <MaterialIcons name="edit" size={18} color="#3B82F6" />
-        </Pressable>
-        <Pressable
-          onPress={() => { Haptics.selectionAsync(); toggleMenuItemAvailability(item.id); }}
-          style={[styles.toggleBtn, item.is_available && styles.toggleBtnActive]}
-        >
-          <MaterialIcons name={item.is_available ? 'visibility' : 'visibility-off'} size={18} color={item.is_available ? '#10B981' : '#999'} />
-        </Pressable>
-        <Pressable onPress={() => handleDelete(item)} style={styles.deleteBtn}>
-          <MaterialIcons name="delete-outline" size={18} color="#EF4444" />
-        </Pressable>
-      </View>
-    </View>
-  );
+    );
+  };
 
   const renderFormModal = (visible: boolean, onClose: () => void, title: string, onSubmit: () => void, submitLabel: string) => (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
@@ -376,7 +406,46 @@ export default function RestaurantMenuScreen() {
                 <MaterialIcons name="local-offer" size={18} color={newBogo ? '#E65100' : '#666'} />
               </Pressable>
               {newBogo ? (
-                <Text style={{ fontSize: 12, color: '#E65100', marginTop: 6, marginLeft: 36 }}>This item will appear in the Deals section for customers</Text>
+                <View style={styles.bogoDurationSection}>
+                  <Text style={styles.bogoDurationTitle}>Offer Duration *</Text>
+                  <Text style={styles.bogoDurationHint}>Set how long this BOGO offer runs. It will automatically expire when the time is up.</Text>
+                  <View style={styles.bogoPresetsRow}>
+                    {BOGO_DURATION_PRESETS.map((preset) => {
+                      const isSelected = selectedBogoPreset === preset.label;
+                      return (
+                        <Pressable
+                          key={preset.label}
+                          onPress={() => {
+                            Haptics.selectionAsync();
+                            setSelectedBogoPreset(preset.label);
+                            const now = new Date();
+                            setBogoStart(now);
+                            setBogoEnd(preset.getEnd());
+                          }}
+                          style={[styles.bogoPreset, isSelected && styles.bogoPresetActive]}
+                        >
+                          <Text style={[styles.bogoPresetText, isSelected && { color: '#FFF' }]}>{preset.label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  {bogoEnd ? (
+                    <View style={styles.bogoDurationInfo}>
+                      <MaterialIcons name="schedule" size={16} color="#E65100" />
+                      <Text style={styles.bogoDurationInfoText}>
+                        {formatBogoDuration(
+                          bogoStart?.toISOString() || null,
+                          bogoEnd?.toISOString() || null
+                        )}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.bogoDurationWarning}>
+                      <MaterialIcons name="warning" size={16} color="#F59E0B" />
+                      <Text style={styles.bogoDurationWarningText}>Please select a duration for your BOGO offer</Text>
+                    </View>
+                  )}
+                </View>
               ) : null}
             </View>
             <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
@@ -563,4 +632,17 @@ const styles = StyleSheet.create({
   catPillPreviewText: { fontSize: 13, fontWeight: '600', color: theme.primary },
   catCount: { flex: 1, fontSize: 13, color: '#999' },
   catRemoveBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: '#0D0D0D', alignItems: 'center', justifyContent: 'center' },
+  // BOGO duration
+  bogoDurationSection: { marginTop: 10, marginLeft: 36, gap: 10 },
+  bogoDurationTitle: { fontSize: 14, fontWeight: '700', color: '#CCC' },
+  bogoDurationHint: { fontSize: 12, color: '#999', lineHeight: 17 },
+  bogoPresetsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  bogoPreset: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: '#2A2A2A', borderWidth: 1, borderColor: '#3A3A3A' },
+  bogoPresetActive: { backgroundColor: '#E65100', borderColor: '#E65100' },
+  bogoPresetText: { fontSize: 13, fontWeight: '600', color: '#CCC' },
+  bogoDurationInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 10, backgroundColor: 'rgba(230,81,0,0.1)', borderWidth: 1, borderColor: 'rgba(230,81,0,0.25)' },
+  bogoDurationInfoText: { flex: 1, fontSize: 12, fontWeight: '600', color: '#E65100' },
+  bogoDurationWarning: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 10, backgroundColor: 'rgba(245,158,11,0.1)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.25)' },
+  bogoDurationWarningText: { flex: 1, fontSize: 12, fontWeight: '500', color: '#F59E0B' },
+  bogoRemainingText: { fontSize: 11, fontWeight: '600', color: '#E65100', marginTop: 4 },
 });

@@ -10,6 +10,7 @@ import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
 import { DbOrder } from '../../services/supabaseData';
+import { formatNigerianDate, formatNigerianTime, NIGERIA_TIMEZONE } from '../../constants/timeUtils';
 
 const statusConfig: Record<string, { color: string; bg: string; icon: string; label: string }> = {
   pending: { color: '#F59E0B', bg: '#FEF3C7', icon: 'schedule', label: 'Pending' },
@@ -105,8 +106,8 @@ export default function OrdersScreen() {
   const renderOrder = ({ item }: { item: DbOrder }) => {
     const status = statusConfig[item.status] || statusConfig.pending;
     const date = new Date(item.created_at);
-    const dateStr = date.toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' });
-    const timeStr = date.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = formatNigerianDate(date);
+    const timeStr = formatNigerianTime(date);
     const items = item.order_items || [];
     const isActive = ['pending', 'confirmed', 'preparing', 'on_the_way'].includes(item.status);
     const isDelivered = item.status === 'delivered';

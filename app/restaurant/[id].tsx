@@ -15,6 +15,7 @@ import { getCuisineColor, parseCuisines } from '../../constants/config';
 import { useRestaurantHours } from '../../hooks/useRestaurantHours';
 import { useAuth } from '@/template';
 import { scheduleRestaurantReminder, cancelRestaurantReminder } from '../../services/notificationScheduler';
+import { isBogoActive, getBogoTimeRemaining, formatNigerianDate, formatNigerianTime, NIGERIA_TIMEZONE } from '../../constants/timeUtils';
 
 export default function RestaurantDetailScreen() {
   const router = useRouter();
@@ -54,8 +55,8 @@ export default function RestaurantDetailScreen() {
     const popularItems = menuItems.filter(i => i.is_popular);
     if (popularItems.length > 0) cats.push({ id: 'popular', name: 'Popular', items: popularItems });
 
-    // Add BOGO category if any BOGO items exist
-    const bogoItems = menuItems.filter(i => (i as any).is_bogo);
+    // Add BOGO category if any active BOGO items exist
+    const bogoItems = menuItems.filter(i => (i as any).is_bogo && isBogoActive((i as any).bogo_start, (i as any).bogo_end));
     if (bogoItems.length > 0) cats.push({ id: 'bogo', name: 'BOGO Deals', items: bogoItems });
 
     catMap.forEach((items, key) => {
@@ -192,8 +193,8 @@ export default function RestaurantDetailScreen() {
 
   const canOrder = isCurrentlyOpen;
 
-  // Count BOGO items for banner
-  const bogoCount = useMemo(() => menuItems.filter(i => (i as any).is_bogo).length, [menuItems]);
+  // Count active BOGO items for banner
+  const bogoCount = useMemo(() => menuItems.filter(i => (i as any).is_bogo && isBogoActive((i as any).bogo_start, (i as any).bogo_end)).length, [menuItems]);
 
   // Share restaurant
   const handleShare = async () => {
@@ -247,8 +248,9 @@ export default function RestaurantDetailScreen() {
   const confirmScheduledOrder = () => {
     setShowScheduleModal(false);
     const formatted = scheduledDate.toLocaleString('en-NG', {
+      timeZone: NIGERIA_TIMEZONE,
       weekday: 'short', day: 'numeric', month: 'short',
-      hour: '2-digit', minute: '2-digit',
+      hour: 'numeric', minute: '2-digit', hour12: true,
     });
     router.push({ pathname: '/checkout', params: { scheduledTime: formatted } });
   };
@@ -452,7 +454,7 @@ export default function RestaurantDetailScreen() {
               <View style={styles.reviewsList}>
                 {reviews.slice(0, 10).map((review) => {
                   const date = new Date(review.created_at);
-                  const dateStr = date.toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' });
+                  const dateStr = formatNigerianDate(date);
                   return (
                     <View key={review.id} style={styles.reviewCard}>
                       <View style={styles.reviewCardHeader}>
@@ -529,7 +531,8 @@ export default function RestaurantDetailScreen() {
         <View style={styles.menuList}>
           {activeItems.map((item) => {
             const inCart = cart.find(ci => ci.menuItem.id === item.id);
-            const isBogo = (item as any).is_bogo;
+            const isBogo = (item as any).is_bogo && isBogoActive((item as any).bogo_start, (item as any).bogo_end);
+            const bogoRemaining = isBogo ? getBogoTimeRemaining((item as any).bogo_end) : null;
             return (
               <View key={item.id} style={[styles.menuItem, (!item.is_available || !canOrder) && { opacity: 0.5 }]}>
                 <View style={{ flex: 1, paddingRight: 12 }}>
@@ -552,6 +555,7 @@ export default function RestaurantDetailScreen() {
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
                     <Text style={styles.menuItemPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
                     {isBogo ? <Text style={styles.bogoFreeLabel}>+ 1 FREE</Text> : null}
+                    {bogoRemaining && bogoRemaining !== 'Expired' ? <Text style={styles.bogoTimeLeft}>{bogoRemaining}</Text> : null}
                   </View>
                 </View>
                 <View>
@@ -689,7 +693,7 @@ export default function RestaurantDetailScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.schedulePickerLabel}>Date</Text>
                   <Text style={styles.schedulePickerValue}>
-                    {scheduledDate.toLocaleDateString('en-NG', { weekday: 'long', day: 'numeric', month: 'long' })}
+                    {scheduledDate.toLocaleDateString('en-NG', { timeZone: NIGERIA_TIMEZONE, weekday: 'long', day: 'numeric', month: 'long' })}
                   </Text>
                 </View>
                 <MaterialIcons name="edit" size={18} color={theme.textMuted} />
@@ -700,7 +704,7 @@ export default function RestaurantDetailScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.schedulePickerLabel}>Time</Text>
                   <Text style={styles.schedulePickerValue}>
-                    {scheduledDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
+                    {scheduledDate.toLocaleTimeString('en-NG', { timeZone: NIGERIA_TIMEZONE, hour: 'numeric', minute: '2-digit', hour12: true })}
                   </Text>
                 </View>
                 <MaterialIcons name="edit" size={18} color={theme.textMuted} />
@@ -844,6 +848,7 @@ const styles = StyleSheet.create({
   bogoItemBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#E65100', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   bogoItemText: { fontSize: 10, fontWeight: '800', color: '#FFF' },
   bogoFreeLabel: { fontSize: 11, fontWeight: '800', color: '#059669', backgroundColor: '#D1FAE5', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  bogoTimeLeft: { fontSize: 10, fontWeight: '700', color: '#D97706', backgroundColor: '#FEF3C7', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 },
   menuItemName: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
   menuItemDesc: { fontSize: 13, color: theme.textSecondary, marginTop: 4, lineHeight: 18 },
   menuItemPrice: { fontSize: 16, fontWeight: '700', color: theme.primary },

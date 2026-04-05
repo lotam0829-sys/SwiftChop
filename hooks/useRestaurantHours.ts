@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { formatTime12h, NIGERIA_TIMEZONE } from '../constants/timeUtils';
 
 export interface DayHours {
   open: string;
@@ -85,15 +86,21 @@ export function useRestaurantHours(operatingHours: any) {
       }
     }
 
-    // Format hours list for display
-    const formattedHours = DAYS_ORDER.map(day => ({
-      day,
-      label: DAY_LABELS[day],
-      isOpen: hours[day]?.is_open ?? true,
-      open: hours[day]?.open ?? '09:00',
-      close: hours[day]?.close ?? '22:00',
-      isToday: day === todayKey,
-    }));
+    // Format hours list for display — 12-hour AM/PM format
+    const formattedHours = DAYS_ORDER.map(day => {
+      const openRaw = hours[day]?.open ?? '09:00';
+      const closeRaw = hours[day]?.close ?? '22:00';
+      return {
+        day,
+        label: DAY_LABELS[day],
+        isOpen: hours[day]?.is_open ?? true,
+        open: formatTime12h(openRaw),
+        close: formatTime12h(closeRaw),
+        openRaw,
+        closeRaw,
+        isToday: day === todayKey,
+      };
+    });
 
     return {
       isCurrentlyOpen,

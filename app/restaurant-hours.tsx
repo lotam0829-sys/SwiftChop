@@ -7,6 +7,7 @@ import { theme } from '../constants/theme';
 import { useAlert } from '@/template';
 import { useApp } from '../contexts/AppContext';
 import { updateRestaurant } from '../services/supabaseData';
+import { formatTime12h } from '../constants/timeUtils';
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 const DAY_LABELS: Record<string, string> = {
@@ -37,6 +38,10 @@ const timeOptions = [
   '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00',
   '20:00', '21:00', '22:00', '23:00', '00:00',
 ];
+
+// Labels for time picker in 12h AM/PM
+const timeLabels: Record<string, string> = {};
+timeOptions.forEach(t => { timeLabels[t] = formatTime12h(t); });
 
 export default function RestaurantHoursScreen() {
   const insets = useSafeAreaInsets();
@@ -110,7 +115,7 @@ export default function RestaurantHoursScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.dayName}>{DAY_LABELS[day]}</Text>
                   <Text style={styles.dayStatus}>
-                    {dayData.is_open ? `${dayData.open} - ${dayData.close}` : 'Closed'}
+                    {dayData.is_open ? `${formatTime12h(dayData.open)} - ${formatTime12h(dayData.close)}` : 'Closed'}
                   </Text>
                 </View>
                 <Pressable onPress={() => toggleDay(day)} style={[styles.toggle, dayData.is_open && styles.toggleActive]}>
@@ -127,7 +132,7 @@ export default function RestaurantHoursScreen() {
                       style={[styles.timeBtn, isEditing && editField === 'open' && styles.timeBtnActive]}
                     >
                       <MaterialIcons name="schedule" size={16} color={theme.primary} />
-                      <Text style={styles.timeBtnText}>{dayData.open}</Text>
+                      <Text style={styles.timeBtnText}>{formatTime12h(dayData.open)}</Text>
                     </Pressable>
                   </View>
                   <MaterialIcons name="arrow-forward" size={16} color="#666" style={{ marginTop: 20 }} />
@@ -138,7 +143,7 @@ export default function RestaurantHoursScreen() {
                       style={[styles.timeBtn, isEditing && editField === 'close' && styles.timeBtnActive]}
                     >
                       <MaterialIcons name="schedule" size={16} color={theme.primary} />
-                      <Text style={styles.timeBtnText}>{dayData.close}</Text>
+                      <Text style={styles.timeBtnText}>{formatTime12h(dayData.close)}</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -155,7 +160,7 @@ export default function RestaurantHoursScreen() {
                           onPress={() => setTime(day, editField, time)}
                           style={[styles.timeOption, currentVal === time && styles.timeOptionActive]}
                         >
-                          <Text style={[styles.timeOptionText, currentVal === time && { color: '#FFF' }]}>{time}</Text>
+                          <Text style={[styles.timeOptionText, currentVal === time && { color: '#FFF' }]}>{timeLabels[time] || time}</Text>
                         </Pressable>
                       );
                     })}

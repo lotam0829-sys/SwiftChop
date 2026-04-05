@@ -9,6 +9,7 @@ import { useApp } from '../../contexts/AppContext';
 import { DbOrder } from '../../services/supabaseData';
 import { notifyPickupReady } from '../../services/pickupNotification';
 import { useAlert } from '@/template';
+import { formatNigerianDate, formatNigerianTime } from '../../constants/timeUtils';
 
 const statusTabs = [
   { key: 'all', label: 'All' },
@@ -78,8 +79,8 @@ export default function RestaurantOrdersScreen() {
   const renderOrder = ({ item }: { item: DbOrder }) => {
     const config = statusConfig[item.status] || statusConfig.pending;
     const time = new Date(item.created_at);
-    const dateStr = time.toLocaleDateString('en-NG', { day: 'numeric', month: 'short' });
-    const timeStr = time.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = formatNigerianDate(time, { year: undefined });
+    const timeStr = formatNigerianTime(time);
     const items = item.order_items || [];
 
     return (
