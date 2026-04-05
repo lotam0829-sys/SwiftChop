@@ -60,7 +60,7 @@ const restaurantSlides = [
   },
 ];
 
-type OnboardingPhase = 'slides' | 'location' | 'card' | 'restaurant_details' | 'bank_details' | 'certificate';
+type OnboardingPhase = 'slides' | 'location' | 'fees_acknowledgment' | 'card' | 'restaurant_details' | 'bank_details' | 'commission_agreement' | 'certificate';
 
 export default function OnboardingScreen() {
   const router = useRouter();
@@ -100,6 +100,9 @@ export default function OnboardingScreen() {
   const [bankName, setBankName] = useState('');
   const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [bankAccountName, setBankAccountName] = useState('');
+
+  // Commission agreement
+  const [commissionAgreed, setCommissionAgreed] = useState(false);
 
   // Certificate state
   const [certificateFile, setCertificateFile] = useState<{ name: string; uri: string; size?: number } | null>(null);
@@ -144,8 +147,9 @@ export default function OnboardingScreen() {
     } catch (err) {
       console.log('Location error:', err);
     }
+    // Route to fees acknowledgment for both roles
     if (userRole === 'customer') {
-      setPhase('card');
+      setPhase('fees_acknowledgment');
     } else {
       setPhase('restaurant_details');
     }
@@ -153,10 +157,16 @@ export default function OnboardingScreen() {
 
   const handleSkipLocation = () => {
     if (userRole === 'customer') {
-      setPhase('card');
+      setPhase('fees_acknowledgment');
     } else {
       setPhase('restaurant_details');
     }
+  };
+
+  // Customer: fees acknowledgment -> card
+  const handleFeesAcknowledged = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setPhase('card');
   };
 
   // Customer: card step (placeholder)
@@ -202,7 +212,7 @@ export default function OnboardingScreen() {
     setPhase('bank_details');
   };
 
-  // Restaurant: bank details -> certificate
+  // Restaurant: bank details -> commission agreement
   const handleBankDetailsNext = () => {
     if (!bankAccountNumber.trim() || bankAccountNumber.trim().length < 10) {
       showAlert('Required', 'Please enter a valid 10-digit bank account number');
@@ -216,6 +226,16 @@ export default function OnboardingScreen() {
       showAlert('Required', 'Please enter the name on your bank account');
       return;
     }
+    setPhase('commission_agreement');
+  };
+
+  // Restaurant: commission agreement -> certificate
+  const handleCommissionAgreed = () => {
+    if (!commissionAgreed) {
+      showAlert('Required', 'Please acknowledge the commission and fee structure to continue.');
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setPhase('certificate');
   };
 
@@ -276,7 +296,6 @@ export default function OnboardingScreen() {
       certificateUrl = filePath;
       setUploadingCert(false);
 
-      // Update profile with restaurant details, bank details, and certificate
       await updateUserProfile(user.id, {
         role: 'restaurant',
         restaurant_name: restaurantName.trim(),
@@ -327,14 +346,6 @@ export default function OnboardingScreen() {
     return cleaned;
   };
 
-  const totalRestaurantSteps = 3;
-  const getCurrentRestaurantStep = (): number => {
-    if (phase === 'restaurant_details') return 1;
-    if (phase === 'bank_details') return 2;
-    if (phase === 'certificate') return 3;
-    return 1;
-  };
-
   // ====== LOCATION PERMISSION SCREEN ======
   if (phase === 'location') {
     return (
@@ -347,7 +358,6 @@ export default function OnboardingScreen() {
           <Text style={styles.phaseSubtitle}>
             Allow SwiftChop to use your location so we can show restaurants near you and calculate accurate delivery fees.
           </Text>
-
           <View style={styles.locationBenefits}>
             {[
               { icon: 'near-me', text: 'Find restaurants close to you' },
@@ -362,9 +372,7 @@ export default function OnboardingScreen() {
               </View>
             ))}
           </View>
-
           <View style={{ flex: 1 }} />
-
           <PrimaryButton label="Allow Location Access" onPress={handleRequestLocation} variant="primary" icon={<MaterialIcons name="location-on" size={20} color="#FFF" />} />
           <Pressable onPress={handleSkipLocation} style={{ marginTop: 16, alignSelf: 'center' }}>
             <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', fontWeight: '500' }}>Skip for now</Text>
@@ -374,17 +382,62 @@ export default function OnboardingScreen() {
     );
   }
 
+  // ====== CUSTOMER: FEES ACKNOWLEDGMENT ======
+  if (phase === 'fees_acknowledgment') {
+    return (
+      <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
+        <ScrollView contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
+          <Pressable onPress={() => setPhase('location')} style={styles.formBackBtn}>
+            <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
+          </Pressable>
+
+          <View style={styles.formHeader}>
+            <View style={[styles.formIconWrap, { backgroundColor: '#FEF3C7' }]}>
+              <MaterialIcons name="info" size={32} color="#D97706" />
+            </View>
+            <Text style={styles.formTitle}>How Fees Work</Text>
+            <Text style={styles.formSubtitle}>Before you start ordering, here is how our pricing works so there are no surprises.</Text>
+          </View>
+
+          <View style={styles.feeCard}>
+            <View style={styles.feeCardIcon}>
+              <MaterialIcons name="receipt-long" size={28} color={theme.primary} />
+            </View>
+            <Text style={styles.feeCardTitle}>Service Fee</Text>
+            <Text style={styles.feeCardDesc}>
+              A small service fee is added to each order to keep SwiftChop running, support customer service, and maintain platform quality. This fee is shown at checkout before you pay.
+            </Text>
+          </View>
+
+          <View style={styles.feeCard}>
+            <View style={[styles.feeCardIcon, { backgroundColor: '#DBEAFE' }]}>
+              <MaterialIcons name="delivery-dining" size={28} color="#2563EB" />
+            </View>
+            <Text style={styles.feeCardTitle}>Delivery Fee</Text>
+            <Text style={styles.feeCardDesc}>
+              The delivery fee is calculated based on the distance between you and the restaurant. Closer restaurants mean lower delivery fees. The exact amount is shown at checkout.
+            </Text>
+          </View>
+
+          <View style={styles.feeHighlight}>
+            <MaterialIcons name="check-circle" size={20} color={theme.success} />
+            <Text style={styles.feeHighlightText}>All fees are transparently displayed before you confirm any order. No hidden charges.</Text>
+          </View>
+
+          <View style={{ height: 24 }} />
+          <PrimaryButton label="I Acknowledge" onPress={handleFeesAcknowledged} variant="dark" icon={<MaterialIcons name="thumb-up" size={20} color="#FFF" />} />
+        </ScrollView>
+      </View>
+    );
+  }
+
   // ====== CUSTOMER: ADD CARD SCREEN ======
   if (phase === 'card') {
     return (
       <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView
-            contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            <Pressable onPress={() => setPhase('location')} style={styles.formBackBtn}>
+          <ScrollView contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <Pressable onPress={() => setPhase('fees_acknowledgment')} style={styles.formBackBtn}>
               <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
             </Pressable>
 
@@ -397,12 +450,7 @@ export default function OnboardingScreen() {
             </View>
 
             <View style={styles.cardPreview}>
-              <LinearGradient
-                colors={['#1A1A2E', '#16213E']}
-                style={styles.cardGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
+              <LinearGradient colors={['#1A1A2E', '#16213E']} style={styles.cardGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
                 <View style={styles.cardTopRow}>
                   <MaterialIcons name="credit-card" size={28} color="rgba(255,255,255,0.8)" />
                   <MaterialIcons name="contactless" size={24} color="rgba(255,255,255,0.6)" />
@@ -469,15 +517,10 @@ export default function OnboardingScreen() {
 
   // ====== RESTAURANT: DETAILS FORM ======
   if (phase === 'restaurant_details') {
-    const step = getCurrentRestaurantStep();
     return (
       <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView
-            contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
+          <ScrollView contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Pressable onPress={() => setPhase('location')} style={styles.formBackBtn}>
               <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
             </Pressable>
@@ -493,7 +536,8 @@ export default function OnboardingScreen() {
             <View style={styles.stepRow}>
               <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>1. Details</Text></View>
               <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>2. Bank</Text></View>
-              <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>3. Certificate</Text></View>
+              <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>3. Fees</Text></View>
+              <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>4. CAC</Text></View>
             </View>
 
             <View style={styles.inputGroup}>
@@ -538,7 +582,7 @@ export default function OnboardingScreen() {
 
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.inputLabel}>Min. Order (\u20A6)</Text>
+                <Text style={styles.inputLabel}>Min. Order ({"\u20A6"})</Text>
                 <View style={styles.inputWrap}>
                   <TextInput style={[styles.input, { textAlign: 'center' }]} placeholder="2000" placeholderTextColor={theme.textMuted} value={minOrder} onChangeText={setMinOrder} keyboardType="number-pad" />
                 </View>
@@ -564,11 +608,7 @@ export default function OnboardingScreen() {
     return (
       <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView
-            contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
+          <ScrollView contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Pressable onPress={() => setPhase('restaurant_details')} style={styles.formBackBtn}>
               <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
             </Pressable>
@@ -587,7 +627,8 @@ export default function OnboardingScreen() {
                 <Text style={[styles.stepPillText, { color: theme.success }]}>1. Details</Text>
               </View>
               <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>2. Bank</Text></View>
-              <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>3. Certificate</Text></View>
+              <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>3. Fees</Text></View>
+              <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>4. CAC</Text></View>
             </View>
 
             <View style={styles.inputGroup}>
@@ -624,9 +665,93 @@ export default function OnboardingScreen() {
             </View>
 
             <View style={{ height: 12 }} />
-            <PrimaryButton label="Next: Upload Certificate" onPress={handleBankDetailsNext} variant="dark" icon={<MaterialIcons name="arrow-forward" size={20} color="#FFF" />} />
+            <PrimaryButton label="Next: Commission & Fees" onPress={handleBankDetailsNext} variant="dark" icon={<MaterialIcons name="arrow-forward" size={20} color="#FFF" />} />
           </ScrollView>
         </KeyboardAvoidingView>
+      </View>
+    );
+  }
+
+  // ====== RESTAURANT: COMMISSION & FEES AGREEMENT ======
+  if (phase === 'commission_agreement') {
+    return (
+      <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
+        <ScrollView contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
+          <Pressable onPress={() => setPhase('bank_details')} style={styles.formBackBtn}>
+            <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
+          </Pressable>
+
+          <View style={styles.formHeader}>
+            <View style={[styles.formIconWrap, { backgroundColor: '#FEF3C7' }]}>
+              <MaterialIcons name="handshake" size={32} color="#D97706" />
+            </View>
+            <Text style={styles.formTitle}>Commission & Fees</Text>
+            <Text style={styles.formSubtitle}>Please review how SwiftChop handles commissions and delivery fees before completing your registration.</Text>
+          </View>
+
+          <View style={styles.stepRow}>
+            <View style={[styles.stepPill, { backgroundColor: theme.successLight }]}>
+              <MaterialIcons name="check" size={14} color={theme.success} />
+              <Text style={[styles.stepPillText, { color: theme.success }]}>1. Details</Text>
+            </View>
+            <View style={[styles.stepPill, { backgroundColor: theme.successLight }]}>
+              <MaterialIcons name="check" size={14} color={theme.success} />
+              <Text style={[styles.stepPillText, { color: theme.success }]}>2. Bank</Text>
+            </View>
+            <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>3. Fees</Text></View>
+            <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>4. CAC</Text></View>
+          </View>
+
+          <View style={styles.feeCard}>
+            <View style={styles.feeCardIcon}>
+              <MaterialIcons name="percent" size={28} color={theme.primary} />
+            </View>
+            <Text style={styles.feeCardTitle}>Service Commission</Text>
+            <Text style={styles.feeCardDesc}>
+              SwiftChop takes a small percentage of each food item sold through the platform. This covers platform maintenance, customer acquisition, payment processing, and customer support. The exact commission rate will be visible on each order settlement.
+            </Text>
+          </View>
+
+          <View style={styles.feeCard}>
+            <View style={[styles.feeCardIcon, { backgroundColor: '#DBEAFE' }]}>
+              <MaterialIcons name="delivery-dining" size={28} color="#2563EB" />
+            </View>
+            <Text style={styles.feeCardTitle}>Delivery Fee</Text>
+            <Text style={styles.feeCardDesc}>
+              Delivery fees are calculated dynamically based on the distance between your restaurant and the customer. This fee is paid by the customer, not deducted from your earnings. Shipday handles the delivery logistics and distance calculation.
+            </Text>
+          </View>
+
+          <View style={styles.feeCard}>
+            <View style={[styles.feeCardIcon, { backgroundColor: '#ECFDF5' }]}>
+              <MaterialIcons name="account-balance-wallet" size={28} color={theme.success} />
+            </View>
+            <Text style={styles.feeCardTitle}>Your Earnings</Text>
+            <Text style={styles.feeCardDesc}>
+              After the service commission is deducted, your earnings are settled directly to your bank account on a weekly basis. You can track all transactions in your restaurant dashboard.
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={() => { Haptics.selectionAsync(); setCommissionAgreed(!commissionAgreed); }}
+            style={styles.agreementRow}
+          >
+            <View style={[styles.checkbox, commissionAgreed && styles.checkboxChecked]}>
+              {commissionAgreed ? <MaterialIcons name="check" size={18} color="#FFF" /> : null}
+            </View>
+            <Text style={styles.agreementText}>
+              I understand and agree to the commission structure and fee model described above.
+            </Text>
+          </Pressable>
+
+          <View style={{ height: 16 }} />
+          <PrimaryButton
+            label="I Agree \u2014 Next: Upload Certificate"
+            onPress={handleCommissionAgreed}
+            variant="dark"
+            icon={<MaterialIcons name="arrow-forward" size={20} color="#FFF" />}
+          />
+        </ScrollView>
       </View>
     );
   }
@@ -636,12 +761,8 @@ export default function OnboardingScreen() {
     return (
       <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView
-            contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            <Pressable onPress={() => setPhase('bank_details')} style={styles.formBackBtn}>
+          <ScrollView contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <Pressable onPress={() => setPhase('commission_agreement')} style={styles.formBackBtn}>
               <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
             </Pressable>
 
@@ -662,13 +783,14 @@ export default function OnboardingScreen() {
                 <MaterialIcons name="check" size={14} color={theme.success} />
                 <Text style={[styles.stepPillText, { color: theme.success }]}>2. Bank</Text>
               </View>
-              <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>3. Certificate</Text></View>
+              <View style={[styles.stepPill, { backgroundColor: theme.successLight }]}>
+                <MaterialIcons name="check" size={14} color={theme.success} />
+                <Text style={[styles.stepPillText, { color: theme.success }]}>3. Fees</Text>
+              </View>
+              <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>4. CAC</Text></View>
             </View>
 
-            <Pressable
-              onPress={() => Linking.openURL('https://icrp.cac.gov.ng/assets/docs/crp-user-guide.pdf')}
-              style={styles.cacGuideCard}
-            >
+            <Pressable onPress={() => Linking.openURL('https://icrp.cac.gov.ng/assets/docs/crp-user-guide.pdf')} style={styles.cacGuideCard}>
               <View style={styles.cacGuideIcon}>
                 <MaterialIcons name="menu-book" size={24} color="#2563EB" />
               </View>
@@ -751,24 +873,11 @@ export default function OnboardingScreen() {
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         keyExtractor={(_, i) => i.toString()}
-        getItemLayout={(_, index) => ({
-          length: screenWidth,
-          offset: screenWidth * index,
-          index,
-        })}
+        getItemLayout={(_, index) => ({ length: screenWidth, offset: screenWidth * index, index })}
         renderItem={({ item }) => (
           <View style={{ width: screenWidth, height: screenHeight }}>
-            <Image
-              source={item.image}
-              style={{ width: screenWidth, height: screenHeight * 0.58 }}
-              contentFit="cover"
-              transition={300}
-            />
-            <LinearGradient
-              colors={['transparent', 'rgba(13,13,13,0.8)', '#0D0D0D']}
-              style={styles.imageGradient}
-              locations={[0, 0.4, 1]}
-            />
+            <Image source={item.image} style={{ width: screenWidth, height: screenHeight * 0.58 }} contentFit="cover" transition={300} />
+            <LinearGradient colors={['transparent', 'rgba(13,13,13,0.8)', '#0D0D0D']} style={styles.imageGradient} locations={[0, 0.4, 1]} />
           </View>
         )}
       />
@@ -800,11 +909,7 @@ export default function OnboardingScreen() {
         </View>
 
         <View style={styles.actionRow}>
-          <Pressable
-            onPress={handleNext}
-            style={({ pressed }) => [styles.mainBtn, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
-            disabled={loading}
-          >
+          <Pressable onPress={handleNext} style={({ pressed }) => [styles.mainBtn, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]} disabled={loading}>
             <Text style={styles.mainBtnText}>{isLastSlide ? 'Continue' : 'Next'}</Text>
             <MaterialIcons name="arrow-forward" size={20} color="#FFF" />
           </Pressable>
@@ -816,8 +921,6 @@ export default function OnboardingScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF' },
-
-  // Slides
   imageGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '55%' },
   overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-between' },
   skipRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 },
@@ -834,8 +937,6 @@ const styles = StyleSheet.create({
   actionRow: { paddingHorizontal: 28 },
   mainBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: theme.primary, height: 56, borderRadius: 16 },
   mainBtnText: { fontSize: 17, fontWeight: '700', color: '#FFF' },
-
-  // Location
   centeredContent: { flex: 1, paddingHorizontal: 28, alignItems: 'center' },
   locationIconWrap: { width: 96, height: 96, borderRadius: 48, backgroundColor: 'rgba(255,107,0,0.12)', alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
   phaseTitle: { fontSize: 28, fontWeight: '800', color: '#FFF', marginBottom: 12, textAlign: 'center' },
@@ -844,8 +945,6 @@ const styles = StyleSheet.create({
   benefitRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   benefitIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: 'rgba(255,107,0,0.1)', alignItems: 'center', justifyContent: 'center' },
   benefitText: { fontSize: 15, color: 'rgba(255,255,255,0.8)', fontWeight: '500' },
-
-  // Form shared
   formScroll: { paddingHorizontal: 24 },
   formBackBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   formHeader: { marginTop: 20, marginBottom: 24, alignItems: 'center' },
@@ -860,14 +959,10 @@ const styles = StyleSheet.create({
   inputHint: { fontSize: 12, color: theme.textMuted, marginTop: 4, paddingLeft: 4 },
   formNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 20, paddingHorizontal: 4 },
   formNoteText: { flex: 1, fontSize: 12, color: theme.textMuted, lineHeight: 17 },
-
-  // Step indicator
-  stepRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
-  stepPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.backgroundSecondary },
+  stepRow: { flexDirection: 'row', gap: 6, marginBottom: 20, flexWrap: 'wrap' },
+  stepPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.backgroundSecondary },
   stepPillActive: { backgroundColor: theme.primaryFaint },
-  stepPillText: { fontSize: 13, fontWeight: '600', color: theme.primary },
-
-  // Card preview
+  stepPillText: { fontSize: 12, fontWeight: '600', color: theme.primary },
   cardPreview: { marginBottom: 24 },
   cardGradient: { borderRadius: 16, padding: 24, height: 190, justifyContent: 'space-between' },
   cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -877,12 +972,21 @@ const styles = StyleSheet.create({
   cardPreviewName: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.9)' },
   secureNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 4, marginTop: 4 },
   secureNoteText: { flex: 1, fontSize: 12, color: theme.textMuted, lineHeight: 17 },
-
-  // Bank details
   bankInfoCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 16, borderRadius: 14, backgroundColor: theme.infoLight, borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 8, marginTop: 4 },
   bankInfoTitle: { fontSize: 14, fontWeight: '700', color: '#1E40AF', marginBottom: 4 },
   bankInfoText: { fontSize: 13, color: '#6B7280', lineHeight: 19 },
-
+  // Fee cards
+  feeCard: { backgroundColor: theme.backgroundSecondary, borderRadius: 16, padding: 20, marginBottom: 16, alignItems: 'center' },
+  feeCardIcon: { width: 56, height: 56, borderRadius: 16, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  feeCardTitle: { fontSize: 18, fontWeight: '700', color: theme.textPrimary, marginBottom: 8 },
+  feeCardDesc: { fontSize: 14, color: theme.textSecondary, lineHeight: 21, textAlign: 'center' },
+  feeHighlight: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 16, borderRadius: 14, backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0' },
+  feeHighlightText: { flex: 1, fontSize: 14, color: '#065F46', fontWeight: '500', lineHeight: 20 },
+  // Agreement
+  agreementRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, padding: 16, borderRadius: 14, backgroundColor: theme.backgroundSecondary, borderWidth: 1.5, borderColor: theme.border, marginTop: 8 },
+  checkbox: { width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: theme.border, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  checkboxChecked: { backgroundColor: theme.primary, borderColor: theme.primary },
+  agreementText: { flex: 1, fontSize: 14, color: theme.textSecondary, lineHeight: 21 },
   // Certificate
   cacGuideCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 14, backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 20 },
   cacGuideIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },

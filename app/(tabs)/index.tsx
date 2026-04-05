@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal, FlatList } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -16,10 +16,12 @@ import { DbRestaurant } from '../../services/supabaseData';
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { userProfile, restaurants, loadingRestaurants, cartCount, userLocation } = useApp();
+  const { userProfile, restaurants, loadingRestaurants, cartCount, userLocation, requestLocation } = useApp();
   const [activeCategory, setActiveCategory] = useState('all');
   const [locationName, setLocationName] = useState<string | null>(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
+  const [showAddressPicker, setShowAddressPicker] = useState(false);
+  const [isAtLocation, setIsAtLocation] = useState(true);
 
   // Reverse geocode user location for display
   useEffect(() => {
@@ -47,7 +49,22 @@ export default function HomeScreen() {
     return () => { cancelled = true; };
   }, [userLocation?.latitude, userLocation?.longitude]);
 
-  // Calculate distance between two lat/lng pairs (Haversine)
+  // Check if user is at their saved address
+  useEffect(() => {
+    if (!userLocation || !userProfile?.address) {
+      setIsAtLocation(true);
+      return;
+    }
+    // If we have a saved address and GPS location, compare distance
+    // A simple heuristic: if locationName doesn't partially match saved address
+    if (locationName && userProfile.address) {
+      const saved = userProfile.address.toLowerCase();
+      const current = locationName.toLowerCase();
+      const overlap = current.split(',').some(part => saved.includes(part.trim()));
+      setIsAtLocation(overlap);
+    }
+  }, [locationName, userProfile?.address]);
+
   const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -59,7 +76,14 @@ export default function HomeScreen() {
     return R * c;
   };
 
-  // Sort restaurants by distance if location available
+  // Estimate delivery time based on distance
+  const getEstimatedDeliveryTime = (distKm: number): string => {
+    // Base 10min prep + 3min/km driving
+    const minTime = Math.round(10 + distKm * 3);
+    const maxTime = Math.round(minTime + 10);
+    return `${minTime}-${maxTime} min`;
+  };
+
   const sortedRestaurants = React.useMemo(() => {
     if (!userLocation) return restaurants;
     return [...restaurants].sort((a, b) => {
@@ -80,37 +104,57 @@ export default function HomeScreen() {
     ? sortedRestaurants.filter(r => r.is_open)
     : sortedRestaurants.filter(r => r.is_open);
 
-  const getRestaurantDistance = (r: DbRestaurant): string | null => {
+  const getRestaurantDistance = (r: DbRestaurant): number | null => {
     if (!userLocation) return null;
     const lat = (r as any).latitude;
     const lng = (r as any).longitude;
     if (!lat || !lng) return null;
-    const d = getDistanceKm(userLocation.latitude, userLocation.longitude, lat, lng);
+    return getDistanceKm(userLocation.latitude, userLocation.longitude, lat, lng);
+  };
+
+  const getDistanceLabel = (r: DbRestaurant): string | null => {
+    const d = getRestaurantDistance(r);
+    if (d === null) return null;
     return d < 1 ? `${(d * 1000).toFixed(0)}m` : `${d.toFixed(1)}km`;
+  };
+
+  const getDeliveryTimeLabel = (r: DbRestaurant): string => {
+    const d = getRestaurantDistance(r);
+    if (d !== null) return getEstimatedDeliveryTime(d);
+    return r.delivery_time;
   };
 
   const displayAddress = locationName || userProfile?.address || 'Set your delivery address';
 
+  const savedAddresses = [
+    userProfile?.address ? { label: 'Saved Address', value: userProfile.address } : null,
+    locationName ? { label: 'Current Location', value: locationName } : null,
+  ].filter(Boolean) as { label: string; value: string }[];
+
+  const handleSelectAddress = (addr: string) => {
+    setShowAddressPicker(false);
+    // Just display the selected address
+  };
+
+  const handleRefreshLocation = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await requestLocation();
+  }, [requestLocation]);
+
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
-      >
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}>
         {/* Header */}
         <View style={styles.header}>
-          <View style={{ flex: 1 }}>
+          <Pressable onPress={() => setShowAddressPicker(true)} style={{ flex: 1 }}>
             <View style={styles.locationRow}>
               <MaterialIcons name="location-on" size={18} color={theme.primary} />
               <Text style={styles.locationLabel}>Deliver to</Text>
               {loadingLocation ? <ActivityIndicator size="small" color={theme.primary} style={{ marginLeft: 4 }} /> : <MaterialIcons name="keyboard-arrow-down" size={18} color={theme.textSecondary} />}
             </View>
             <Text style={styles.locationText} numberOfLines={1}>{displayAddress}</Text>
-          </View>
-          <Pressable
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/cart'); }}
-            style={styles.cartBtn}
-          >
+          </Pressable>
+          <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/cart'); }} style={styles.cartBtn}>
             <MaterialIcons name="shopping-bag" size={24} color={theme.textPrimary} />
             {cartCount > 0 ? (
               <View style={styles.cartBadge}>
@@ -119,6 +163,16 @@ export default function HomeScreen() {
             ) : null}
           </Pressable>
         </View>
+
+        {/* Location mismatch banner */}
+        {!isAtLocation && locationName ? (
+          <View style={styles.locationBanner}>
+            <MaterialIcons name="info" size={18} color="#D97706" />
+            <Text style={styles.locationBannerText}>
+              You appear to be at <Text style={{ fontWeight: '700' }}>{locationName}</Text>, which is different from your saved address. Delivery times shown are based on your current location.
+            </Text>
+          </View>
+        ) : null}
 
         {/* Greeting */}
         <View style={styles.greetingSection}>
@@ -135,11 +189,7 @@ export default function HomeScreen() {
         {/* Categories */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoriesRow}>
           {foodCategories.map((cat) => (
-            <Pressable
-              key={cat.id}
-              onPress={() => { Haptics.selectionAsync(); setActiveCategory(cat.id); }}
-              style={[styles.categoryChip, activeCategory === cat.id && { backgroundColor: theme.primary }]}
-            >
+            <Pressable key={cat.id} onPress={() => { Haptics.selectionAsync(); setActiveCategory(cat.id); }} style={[styles.categoryChip, activeCategory === cat.id && { backgroundColor: theme.primary }]}>
               <MaterialIcons name={cat.icon as any} size={18} color={activeCategory === cat.id ? '#FFF' : theme.textSecondary} />
               <Text style={[styles.categoryText, activeCategory === cat.id && { color: '#FFF' }]}>{cat.name}</Text>
             </Pressable>
@@ -150,19 +200,15 @@ export default function HomeScreen() {
           <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 40 }} />
         ) : (
           <>
-            {/* Featured Banner */}
             {featured.length > 0 ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Featured</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 14 }}>
                   {featured.map((r) => {
-                    const dist = getRestaurantDistance(r);
+                    const dist = getDistanceLabel(r);
+                    const delivTime = getDeliveryTimeLabel(r);
                     return (
-                      <Pressable
-                        key={r.id}
-                        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/restaurant/${r.id}`); }}
-                        style={styles.featuredCard}
-                      >
+                      <Pressable key={r.id} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/restaurant/${r.id}`); }} style={styles.featuredCard}>
                         <Image source={getImage(r.image_key)} style={styles.featuredImage} contentFit="cover" />
                         <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.featuredGradient} />
                         <View style={styles.featuredInfo}>
@@ -179,7 +225,7 @@ export default function HomeScreen() {
                             ) : null}
                           </View>
                           <Text style={styles.featuredName}>{r.name}</Text>
-                          <Text style={styles.featuredMeta}>{r.cuisine} {"\u00B7"} {r.delivery_time}</Text>
+                          <Text style={styles.featuredMeta}>{r.cuisine} {"\u00B7"} {delivTime}</Text>
                         </View>
                       </Pressable>
                     );
@@ -188,20 +234,16 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
-            {/* All Restaurants */}
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { paddingHorizontal: 16 }]}>
                 {activeCategory === 'all' ? 'Near You' : `${foodCategories.find(c => c.id === activeCategory)?.name || ''} Restaurants`}
               </Text>
               <View style={styles.restaurantList}>
                 {filtered.map((r) => {
-                  const dist = getRestaurantDistance(r);
+                  const dist = getDistanceLabel(r);
+                  const delivTime = getDeliveryTimeLabel(r);
                   return (
-                    <Pressable
-                      key={r.id}
-                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/restaurant/${r.id}`); }}
-                      style={styles.restaurantCard}
-                    >
+                    <Pressable key={r.id} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/restaurant/${r.id}`); }} style={styles.restaurantCard}>
                       <Image source={getImage(r.image_key)} style={styles.restaurantImage} contentFit="cover" />
                       {!r.is_open ? (
                         <View style={styles.closedOverlay}>
@@ -219,7 +261,7 @@ export default function HomeScreen() {
                         <Text style={styles.restaurantCuisine}>{r.cuisine}</Text>
                         <View style={styles.restaurantMeta}>
                           <MaterialIcons name="access-time" size={14} color={theme.textMuted} />
-                          <Text style={styles.metaText}>{r.delivery_time}</Text>
+                          <Text style={styles.metaText}>{delivTime}</Text>
                           <View style={styles.metaDot} />
                           <MaterialIcons name="delivery-dining" size={14} color={theme.textMuted} />
                           <Text style={styles.metaText}>{"\u20A6"}{r.delivery_fee.toLocaleString()}</Text>
@@ -229,12 +271,7 @@ export default function HomeScreen() {
                               <MaterialIcons name="near-me" size={13} color={theme.primary} />
                               <Text style={[styles.metaText, { color: theme.primary, fontWeight: '600' }]}>{dist}</Text>
                             </>
-                          ) : (
-                            <>
-                              <View style={styles.metaDot} />
-                              <Text style={styles.metaText}>Min {"\u20A6"}{r.min_order.toLocaleString()}</Text>
-                            </>
-                          )}
+                          ) : null}
                         </View>
                       </View>
                     </Pressable>
@@ -252,6 +289,44 @@ export default function HomeScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* Address picker modal */}
+      <Modal visible={showAddressPicker} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Delivery Address</Text>
+              <Pressable onPress={() => setShowAddressPicker(false)}>
+                <MaterialIcons name="close" size={24} color={theme.textPrimary} />
+              </Pressable>
+            </View>
+
+            <Pressable onPress={handleRefreshLocation} style={styles.useLocationBtn}>
+              <MaterialIcons name="my-location" size={20} color={theme.primary} />
+              <Text style={styles.useLocationText}>Use current location</Text>
+            </Pressable>
+
+            {savedAddresses.map((addr, idx) => (
+              <Pressable key={idx} onPress={() => handleSelectAddress(addr.value)} style={styles.addressItem}>
+                <View style={styles.addressIcon}>
+                  <MaterialIcons name={addr.label === 'Current Location' ? 'gps-fixed' : 'home'} size={20} color={theme.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.addressLabel}>{addr.label}</Text>
+                  <Text style={styles.addressValue} numberOfLines={2}>{addr.value}</Text>
+                </View>
+              </Pressable>
+            ))}
+
+            {savedAddresses.length === 0 ? (
+              <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+                <MaterialIcons name="location-off" size={36} color={theme.textMuted} />
+                <Text style={{ fontSize: 14, color: theme.textMuted, marginTop: 8 }}>No saved addresses. Enable location to get started.</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -265,6 +340,8 @@ const styles = StyleSheet.create({
   cartBtn: { width: 48, height: 48, borderRadius: 14, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center' },
   cartBadge: { position: 'absolute', top: 6, right: 6, backgroundColor: theme.primary, borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   cartBadgeText: { fontSize: 10, fontWeight: '700', color: '#FFF' },
+  locationBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginHorizontal: 16, marginTop: 8, padding: 14, borderRadius: 14, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
+  locationBannerText: { flex: 1, fontSize: 13, color: '#92400E', lineHeight: 19 },
   greetingSection: { paddingHorizontal: 16, marginTop: 16, marginBottom: 16 },
   greeting: { fontSize: 24, fontWeight: '700', color: theme.textPrimary },
   greetingSub: { fontSize: 15, color: theme.textSecondary, marginTop: 4 },
@@ -300,4 +377,15 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', paddingVertical: 48 },
   emptyTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginTop: 12 },
   emptySubtitle: { fontSize: 14, color: theme.textSecondary, marginTop: 4 },
+  // Modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 20, paddingHorizontal: 20 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: theme.textPrimary },
+  useLocationBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.borderLight },
+  useLocationText: { fontSize: 15, fontWeight: '600', color: theme.primary },
+  addressItem: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.borderLight },
+  addressIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
+  addressLabel: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
+  addressValue: { fontSize: 13, color: theme.textSecondary, marginTop: 2 },
 });

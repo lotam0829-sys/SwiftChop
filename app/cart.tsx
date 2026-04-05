@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,13 +8,34 @@ import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
 import { useApp } from '../contexts/AppContext';
 import { getImage } from '../constants/images';
+import { calculateDeliveryFee } from '../constants/config';
 
 export default function CartScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { cart, updateCartQuantity, removeFromCart, clearCart, cartTotal, cartCount } = useApp();
+  const { cart, updateCartQuantity, removeFromCart, clearCart, cartTotal, cartCount, userLocation, restaurants } = useApp();
 
-  const deliveryFee = cart.length > 0 ? 1500 : 0;
+  // Calculate delivery fee based on distance to restaurant
+  const deliveryFee = React.useMemo(() => {
+    if (cart.length === 0) return 0;
+    if (!userLocation) return calculateDeliveryFee();
+    const restaurantId = cart[0].restaurantId;
+    const rest = restaurants.find(r => r.id === restaurantId);
+    const rLat = (rest as any)?.latitude;
+    const rLng = (rest as any)?.longitude;
+    if (rLat && rLng) {
+      const R = 6371;
+      const dLat = (rLat - userLocation.latitude) * Math.PI / 180;
+      const dLon = (rLng - userLocation.longitude) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(userLocation.latitude * Math.PI / 180) * Math.cos(rLat * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return calculateDeliveryFee(R * c);
+    }
+    return calculateDeliveryFee();
+  }, [cart, userLocation, restaurants]);
+
   const serviceFee = cart.length > 0 ? 200 : 0;
   const total = cartTotal + deliveryFee + serviceFee;
 
@@ -45,20 +66,14 @@ export default function CartScreen() {
                 <Image source={getImage(ci.menuItem.image_key)} style={styles.itemImage} contentFit="cover" />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemName} numberOfLines={1}>{ci.menuItem.name}</Text>
-                  <Text style={styles.itemPrice}>₦{(ci.menuItem.price * ci.quantity).toLocaleString()}</Text>
+                  <Text style={styles.itemPrice}>{"\u20A6"}{(ci.menuItem.price * ci.quantity).toLocaleString()}</Text>
                 </View>
                 <View style={styles.qtyControl}>
-                  <Pressable
-                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); ci.quantity === 1 ? removeFromCart(ci.menuItem.id) : updateCartQuantity(ci.menuItem.id, ci.quantity - 1); }}
-                    style={styles.qtyBtn}
-                  >
+                  <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); ci.quantity === 1 ? removeFromCart(ci.menuItem.id) : updateCartQuantity(ci.menuItem.id, ci.quantity - 1); }} style={styles.qtyBtn}>
                     <MaterialIcons name={ci.quantity === 1 ? 'delete-outline' : 'remove'} size={18} color={ci.quantity === 1 ? theme.error : theme.textPrimary} />
                   </Pressable>
                   <Text style={styles.qtyText}>{ci.quantity}</Text>
-                  <Pressable
-                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); updateCartQuantity(ci.menuItem.id, ci.quantity + 1); }}
-                    style={[styles.qtyBtn, { backgroundColor: theme.primary }]}
-                  >
+                  <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); updateCartQuantity(ci.menuItem.id, ci.quantity + 1); }} style={[styles.qtyBtn, { backgroundColor: theme.primary }]}>
                     <MaterialIcons name="add" size={18} color="#FFF" />
                   </Pressable>
                 </View>
@@ -67,23 +82,20 @@ export default function CartScreen() {
 
             <View style={styles.summarySection}>
               <Text style={styles.summaryTitle}>Order Summary</Text>
-              <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Subtotal</Text><Text style={styles.summaryValue}>₦{cartTotal.toLocaleString()}</Text></View>
-              <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Delivery fee</Text><Text style={styles.summaryValue}>₦{deliveryFee.toLocaleString()}</Text></View>
-              <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Service fee</Text><Text style={styles.summaryValue}>₦{serviceFee.toLocaleString()}</Text></View>
+              <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Subtotal</Text><Text style={styles.summaryValue}>{"\u20A6"}{cartTotal.toLocaleString()}</Text></View>
+              <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Delivery fee</Text><Text style={styles.summaryValue}>{"\u20A6"}{deliveryFee.toLocaleString()}</Text></View>
+              <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Service fee</Text><Text style={styles.summaryValue}>{"\u20A6"}{serviceFee.toLocaleString()}</Text></View>
               <View style={[styles.summaryRow, styles.totalRow]}>
                 <Text style={styles.totalLabel}>Total</Text>
-                <Text style={styles.totalValue}>₦{total.toLocaleString()}</Text>
+                <Text style={styles.totalValue}>{"\u20A6"}{total.toLocaleString()}</Text>
               </View>
             </View>
           </ScrollView>
 
           <View style={[styles.checkoutBar, { paddingBottom: insets.bottom + 16 }]}>
-            <Pressable
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push('/checkout'); }}
-              style={({ pressed }) => [styles.checkoutBtn, { opacity: pressed ? 0.9 : 1 }]}
-            >
+            <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push('/checkout'); }} style={({ pressed }) => [styles.checkoutBtn, { opacity: pressed ? 0.9 : 1 }]}>
               <Text style={styles.checkoutBtnText}>Proceed to Checkout</Text>
-              <Text style={styles.checkoutBtnPrice}>₦{total.toLocaleString()}</Text>
+              <Text style={styles.checkoutBtnPrice}>{"\u20A6"}{total.toLocaleString()}</Text>
             </Pressable>
           </View>
         </>

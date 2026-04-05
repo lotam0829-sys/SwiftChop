@@ -15,13 +15,12 @@ export default function RestaurantDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { addToCart, cart, cartCount, cartTotal } = useApp();
+  const { addToCart, cart, cartCount, cartTotal, userLocation } = useApp();
 
   const [restaurant, setRestaurant] = useState<DbRestaurant | null>(null);
   const [menuItems, setMenuItems] = useState<DbMenuItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Group menu items by category
   const categories = useMemo(() => {
     const cats: { id: string; name: string; items: DbMenuItem[] }[] = [];
     const catMap = new Map<string, DbMenuItem[]>();
@@ -30,7 +29,6 @@ export default function RestaurantDetailScreen() {
       if (!catMap.has(cat)) catMap.set(cat, []);
       catMap.get(cat)?.push(item);
     });
-    // Popular items first
     const popularItems = menuItems.filter(i => i.is_popular);
     if (popularItems.length > 0) cats.push({ id: 'popular', name: 'Popular', items: popularItems });
     catMap.forEach((items, key) => {
@@ -64,6 +62,33 @@ export default function RestaurantDetailScreen() {
     const cat = categories.find(c => c.id === activeCategory);
     return cat?.items || [];
   }, [categories, activeCategory]);
+
+  // Calculate distance and dynamic delivery time
+  const distanceKm = useMemo(() => {
+    if (!userLocation || !restaurant) return null;
+    const rLat = (restaurant as any).latitude;
+    const rLng = (restaurant as any).longitude;
+    if (!rLat || !rLng) return null;
+    const R = 6371;
+    const dLat = (rLat - userLocation.latitude) * Math.PI / 180;
+    const dLon = (rLng - userLocation.longitude) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(userLocation.latitude * Math.PI / 180) * Math.cos(rLat * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }, [userLocation, restaurant]);
+
+  const estimatedDeliveryTime = useMemo(() => {
+    if (distanceKm !== null) {
+      const minTime = Math.round(10 + distanceKm * 3);
+      const maxTime = Math.round(minTime + 10);
+      return `${minTime}-${maxTime} min`;
+    }
+    return restaurant?.delivery_time || '25-35 min';
+  }, [distanceKm, restaurant]);
+
+  const distanceLabel = distanceKm !== null ? (distanceKm < 1 ? `${(distanceKm * 1000).toFixed(0)}m` : `${distanceKm.toFixed(1)}km`) : null;
 
   if (loading) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' }}><ActivityIndicator size="large" color={theme.primary} /></View>;
@@ -103,25 +128,38 @@ export default function RestaurantDetailScreen() {
           <View style={styles.infoDivider} />
           <View style={styles.infoItem}>
             <MaterialIcons name="access-time" size={18} color={theme.textMuted} />
-            <Text style={styles.infoValue}>{restaurant.delivery_time}</Text>
+            <Text style={styles.infoValue}>{estimatedDeliveryTime}</Text>
           </View>
           <View style={styles.infoDivider} />
           <View style={styles.infoItem}>
             <MaterialIcons name="delivery-dining" size={18} color={theme.textMuted} />
-            <Text style={styles.infoValue}>₦{restaurant.delivery_fee.toLocaleString()}</Text>
+            <Text style={styles.infoValue}>{"\u20A6"}{restaurant.delivery_fee.toLocaleString()}</Text>
           </View>
+          {distanceLabel ? (
+            <>
+              <View style={styles.infoDivider} />
+              <View style={styles.infoItem}>
+                <MaterialIcons name="near-me" size={16} color={theme.primary} />
+                <Text style={[styles.infoValue, { color: theme.primary }]}>{distanceLabel}</Text>
+              </View>
+            </>
+          ) : null}
         </View>
+
+        {/* Restaurant location */}
+        {restaurant.address ? (
+          <View style={styles.locationRow}>
+            <MaterialIcons name="location-on" size={16} color={theme.textMuted} />
+            <Text style={styles.locationText}>{restaurant.address}</Text>
+          </View>
+        ) : null}
 
         <Text style={styles.description}>{restaurant.description}</Text>
 
         {categories.length > 0 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRow}>
             {categories.map((cat) => (
-              <Pressable
-                key={cat.id}
-                onPress={() => { Haptics.selectionAsync(); setActiveCategory(cat.id); }}
-                style={[styles.tab, activeCategory === cat.id && styles.tabActive]}
-              >
+              <Pressable key={cat.id} onPress={() => { Haptics.selectionAsync(); setActiveCategory(cat.id); }} style={[styles.tab, activeCategory === cat.id && styles.tabActive]}>
                 <Text style={[styles.tabText, activeCategory === cat.id && styles.tabTextActive]}>{cat.name}</Text>
               </Pressable>
             ))}
@@ -142,15 +180,12 @@ export default function RestaurantDetailScreen() {
                   ) : null}
                   <Text style={styles.menuItemName}>{item.name}</Text>
                   <Text style={styles.menuItemDesc} numberOfLines={2}>{item.description}</Text>
-                  <Text style={styles.menuItemPrice}>₦{item.price.toLocaleString()}</Text>
+                  <Text style={styles.menuItemPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
                 </View>
                 <View>
                   <Image source={getImage(item.image_key)} style={styles.menuItemImage} contentFit="cover" />
                   {item.is_available ? (
-                    <Pressable
-                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); addToCart(item, restaurant.id, restaurant.name); }}
-                      style={[styles.addBtnStyle, inCart ? styles.addBtnActive : null]}
-                    >
+                    <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); addToCart(item, restaurant.id, restaurant.name); }} style={[styles.addBtnStyle, inCart ? styles.addBtnActive : null]}>
                       {inCart ? <Text style={styles.addBtnTextActive}>{inCart.quantity}</Text> : <MaterialIcons name="add" size={22} color="#FFF" />}
                     </Pressable>
                   ) : (
@@ -170,7 +205,7 @@ export default function RestaurantDetailScreen() {
               <View style={styles.cartCountBadge}><Text style={styles.cartCountText}>{cartCount}</Text></View>
               <Text style={styles.cartBarLabel}>View Cart</Text>
             </View>
-            <Text style={styles.cartBarTotal}>₦{cartTotal.toLocaleString()}</Text>
+            <Text style={styles.cartBarTotal}>{"\u20A6"}{cartTotal.toLocaleString()}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -189,11 +224,13 @@ const styles = StyleSheet.create({
   heroBottom: { position: 'absolute', bottom: 20, left: 16 },
   heroName: { fontSize: 26, fontWeight: '800', color: '#FFF' },
   heroCuisine: { fontSize: 14, color: 'rgba(255,255,255,0.85)', marginTop: 4 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, paddingHorizontal: 16, gap: 16 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, paddingHorizontal: 12, gap: 12, flexWrap: 'wrap' },
   infoItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   infoValue: { fontSize: 14, fontWeight: '700', color: theme.textPrimary },
   infoLabel: { fontSize: 12, color: theme.textMuted },
   infoDivider: { width: 1, height: 20, backgroundColor: theme.border },
+  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, marginBottom: 8 },
+  locationText: { fontSize: 13, color: theme.textSecondary },
   description: { fontSize: 14, color: theme.textSecondary, lineHeight: 20, paddingHorizontal: 16, marginBottom: 16 },
   tabsRow: { paddingHorizontal: 16, gap: 8, marginBottom: 8 },
   tab: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 24, backgroundColor: theme.backgroundSecondary },

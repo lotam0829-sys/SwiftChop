@@ -13,10 +13,9 @@ import PrimaryButton from '../components/ui/PrimaryButton';
 export default function CheckoutScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { cart, cartTotal, placeOrder, userLocation, userProfile } = useApp();
+  const { cart, cartTotal, placeOrder, userLocation, userProfile, restaurants } = useApp();
 
   const [address, setAddress] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'transfer' | 'cash'>('card');
   const [loading, setLoading] = useState(false);
   const [note, setNote] = useState('');
   const [estimatedKm, setEstimatedKm] = useState<number | null>(null);
@@ -55,26 +54,32 @@ export default function CheckoutScreen() {
   // Estimate distance to restaurant for delivery fee
   useEffect(() => {
     if (!userLocation || cart.length === 0) return;
-    // Try to get restaurant location for distance calculation
-    // For now we use the default estimate — Shipday will recalculate with actual distance
-    // When restaurants have lat/lng, we can calculate here
-    setEstimatedKm(null); // Will use default
-  }, [userLocation, cart]);
+    const restaurantId = cart[0].restaurantId;
+    const rest = restaurants.find(r => r.id === restaurantId);
+    const rLat = (rest as any)?.latitude;
+    const rLng = (rest as any)?.longitude;
+    if (rLat && rLng) {
+      const R = 6371;
+      const dLat = (rLat - userLocation.latitude) * Math.PI / 180;
+      const dLon = (rLng - userLocation.longitude) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(userLocation.latitude * Math.PI / 180) * Math.cos(rLat * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      setEstimatedKm(parseFloat((R * c).toFixed(1)));
+    } else {
+      setEstimatedKm(null);
+    }
+  }, [userLocation, cart, restaurants]);
 
   const deliveryFee = calculateDeliveryFee(estimatedKm);
   const serviceFee = config.serviceFee;
   const total = cartTotal + deliveryFee + serviceFee;
 
-  const payments = [
-    { id: 'card' as const, icon: 'credit-card', label: 'Debit Card', sub: '**** 4532' },
-    { id: 'transfer' as const, icon: 'account-balance', label: 'Bank Transfer', sub: 'Pay on confirmation' },
-    { id: 'cash' as const, icon: 'payments', label: 'Cash on Delivery', sub: 'Pay the rider' },
-  ];
-
   const handlePlaceOrder = async () => {
     if (!address.trim()) return;
     setLoading(true);
-    const order = await placeOrder(address, note, paymentMethod, deliveryFee);
+    const order = await placeOrder(address, note, 'card', deliveryFee);
     setLoading(false);
     if (order) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -114,20 +119,18 @@ export default function CheckoutScreen() {
               <MaterialIcons name="payment" size={20} color={theme.primary} />
               <Text style={styles.sectionTitle}>Payment Method</Text>
             </View>
-            {payments.map((p) => (
-              <Pressable key={p.id} onPress={() => { Haptics.selectionAsync(); setPaymentMethod(p.id); }} style={[styles.paymentOption, paymentMethod === p.id && styles.paymentOptionActive]}>
-                <View style={[styles.paymentIcon, paymentMethod === p.id && { backgroundColor: theme.primaryFaint }]}>
-                  <MaterialIcons name={p.icon as any} size={22} color={paymentMethod === p.id ? theme.primary : theme.textMuted} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.paymentLabel, paymentMethod === p.id && { color: theme.textPrimary }]}>{p.label}</Text>
-                  <Text style={styles.paymentSub}>{p.sub}</Text>
-                </View>
-                <View style={[styles.radio, paymentMethod === p.id && styles.radioActive]}>
-                  {paymentMethod === p.id ? <View style={styles.radioInner} /> : null}
-                </View>
-              </Pressable>
-            ))}
+            <View style={[styles.paymentOption, styles.paymentOptionActive]}>
+              <View style={[styles.paymentIcon, { backgroundColor: theme.primaryFaint }]}>
+                <MaterialIcons name="credit-card" size={22} color={theme.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.paymentLabel, { color: theme.textPrimary }]}>Debit Card</Text>
+                <Text style={styles.paymentSub}>Secure card payment</Text>
+              </View>
+              <View style={[styles.radio, styles.radioActive]}>
+                <View style={styles.radioInner} />
+              </View>
+            </View>
           </View>
 
           <View style={styles.section}>
