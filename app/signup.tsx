@@ -7,12 +7,13 @@ import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
 import { useAuth, useAlert } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
+import { updateUserProfile, createRestaurantForOwner } from '../services/supabaseData';
 
 export default function SignupScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { role } = useLocalSearchParams<{ role: string }>();
-  const { sendOTP, verifyOTPAndLogin, operationLoading } = useAuth();
+  const { sendOTP, verifyOTPAndLogin, signInWithGoogle, operationLoading } = useAuth();
   const { showAlert } = useAlert();
   const userRole = (role as 'customer' | 'restaurant') || 'customer';
 
@@ -42,15 +43,37 @@ export default function SignupScreen() {
   const handleVerifyOTP = async () => {
     if (otp.length < 4) { showAlert('Error', 'Please enter the verification code'); return; }
 
-    const metadata: Record<string, string> = { role: userRole };
-    if (userRole === 'restaurant') metadata.restaurant_name = restaurantName;
-
-    const { error } = await verifyOTPAndLogin(email, otp, { password });
+    const { error, user: newUser } = await verifyOTPAndLogin(email, otp, { password });
     if (error) {
       showAlert('Verification Failed', error);
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      // Root navigator handles redirect based on role
+      return;
+    }
+
+    // Update user_profiles with the selected role and restaurant info
+    if (newUser?.id) {
+      const profileUpdates: Record<string, any> = { role: userRole };
+      if (userRole === 'restaurant') {
+        profileUpdates.restaurant_name = restaurantName;
+        profileUpdates.is_approved = false;
+      } else {
+        profileUpdates.is_approved = true;
+      }
+      await updateUserProfile(newUser.id, profileUpdates);
+
+      // Create restaurant entry for restaurant owners
+      if (userRole === 'restaurant' && restaurantName.trim()) {
+        await createRestaurantForOwner(newUser.id, restaurantName.trim());
+      }
+    }
+
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    // Root navigator handles redirect based on role
+  };
+
+  const handleGoogleSignIn = async () => {
+    const { error } = await signInWithGoogle();
+    if (error) {
+      showAlert('Google Sign-In Failed', error);
     }
   };
 
@@ -87,6 +110,18 @@ export default function SignupScreen() {
 
           {!otpSent ? (
             <>
+              {/* Google Sign-In */}
+              <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={operationLoading}>
+                <Ionicons name="logo-google" size={20} color="#DB4437" />
+                <Text style={styles.googleBtnText}>Continue with Google</Text>
+              </Pressable>
+
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or sign up with email</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
               {/* Restaurant name */}
               {userRole === 'restaurant' && (
                 <View style={styles.inputGroup}>
@@ -178,9 +213,14 @@ const styles = StyleSheet.create({
   roleText: { fontSize: 13, fontWeight: '600' },
   title: { fontSize: 28, fontWeight: '700', color: theme.textPrimary, marginBottom: 6 },
   subtitle: { fontSize: 15, color: theme.textSecondary, lineHeight: 22 },
+  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 20, gap: 12 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: theme.border },
+  dividerText: { fontSize: 13, color: theme.textMuted },
   inputGroup: { marginBottom: 16 },
   inputLabel: { fontSize: 14, fontWeight: '600', color: theme.textPrimary, marginBottom: 8 },
   inputWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, height: 52, backgroundColor: theme.backgroundSecondary },
   input: { flex: 1, fontSize: 15, color: theme.textPrimary },
   switchText: { fontSize: 14, color: theme.textSecondary },
+  googleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 52, borderRadius: 14, borderWidth: 1.5, borderColor: theme.border, backgroundColor: '#FFF', marginBottom: 4 },
+  googleBtnText: { fontSize: 15, fontWeight: '600', color: theme.textPrimary },
 });

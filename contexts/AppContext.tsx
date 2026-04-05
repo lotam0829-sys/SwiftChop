@@ -94,7 +94,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Load user profile when auth user changes
   useEffect(() => {
     if (user?.id) {
-      loadProfile(user.id);
+      loadProfileAndSetup(user.id);
     } else {
       setUserProfile(null);
       setOwnerRestaurant(null);
@@ -132,6 +132,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshRestaurantData();
     }
   }, [userProfile?.id, userProfile?.role]);
+
+  const loadProfileAndSetup = async (userId: string) => {
+    const { data } = await fetchUserProfile(userId);
+    if (data) {
+      setUserProfile(data);
+      // Auto-create restaurant entry if restaurant owner and none exists
+      if (data.role === 'restaurant' && data.restaurant_name) {
+        const { data: existing } = await fetchOwnerRestaurant(userId);
+        if (!existing) {
+          await createRestaurantForOwner(userId, data.restaurant_name);
+        }
+      }
+    }
+  };
 
   const loadProfile = async (userId: string) => {
     const { data } = await fetchUserProfile(userId);

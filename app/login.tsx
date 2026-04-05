@@ -12,13 +12,20 @@ export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { role } = useLocalSearchParams<{ role: string }>();
-  const { signInWithPassword, operationLoading } = useAuth();
+  const { signInWithPassword, signInWithGoogle, operationLoading } = useAuth();
   const { showAlert } = useAlert();
   const userRole = (role as 'customer' | 'restaurant') || 'customer';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    const { error } = await signInWithGoogle();
+    if (error) {
+      showAlert('Google Sign-In Failed', error);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email.trim()) { showAlert('Error', 'Please enter your email'); return; }
@@ -61,9 +68,15 @@ export default function LoginScreen() {
             <Text style={styles.subtitle}>Sign in to your SwiftChop account</Text>
           </View>
 
+          {/* Google Sign-In */}
+          <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={operationLoading}>
+            <Ionicons name="logo-google" size={20} color="#DB4437" />
+            <Text style={styles.googleBtnText}>Continue with Google</Text>
+          </Pressable>
+
           <View style={styles.divider}>
             <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>Sign in with email</Text>
+            <Text style={styles.dividerText}>or sign in with email</Text>
             <View style={styles.dividerLine} />
           </View>
 
@@ -139,4 +152,6 @@ const styles = StyleSheet.create({
   inputWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, height: 52, backgroundColor: theme.backgroundSecondary },
   input: { flex: 1, fontSize: 15, color: theme.textPrimary },
   switchText: { fontSize: 14, color: theme.textSecondary },
+  googleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 52, borderRadius: 14, borderWidth: 1.5, borderColor: theme.border, backgroundColor: '#FFF', marginBottom: 4 },
+  googleBtnText: { fontSize: 15, fontWeight: '600', color: theme.textPrimary },
 });
