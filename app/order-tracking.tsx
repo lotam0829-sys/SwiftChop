@@ -20,7 +20,7 @@ export default function OrderTrackingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
-  const { customerOrders, refreshOrder } = useApp();
+  const { customerOrders, refreshOrder, reorder } = useApp();
 
   const order = customerOrders.find(o => o.id === orderId) || customerOrders[0];
   const [currentStep, setCurrentStep] = useState(0);
@@ -213,26 +213,39 @@ export default function OrderTrackingScreen() {
           </View>
         </View>
 
-        {/* Review prompt for delivered orders */}
+        {/* Reorder + Review for delivered orders */}
         {order.status === 'delivered' ? (
-          <Pressable
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push({
-                pathname: '/review',
-                params: {
-                  orderId: order.id,
-                  restaurantId: order.restaurant_id,
-                  restaurantName: order.restaurant_name,
-                },
-              });
-            }}
-            style={styles.reviewPromptBtn}
-          >
-            <MaterialIcons name="star" size={20} color="#FCD34D" />
-            <Text style={styles.reviewPromptText}>Rate & Review Your Order</Text>
-            <MaterialIcons name="chevron-right" size={20} color={theme.primary} />
-          </Pressable>
+          <View style={{ gap: 10 }}>
+            <Pressable
+              onPress={async () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                const success = await reorder(order);
+                if (success) router.push('/cart');
+              }}
+              style={styles.reorderPromptBtn}
+            >
+              <MaterialIcons name="replay" size={20} color="#FFF" />
+              <Text style={styles.reorderPromptText}>Reorder This Meal</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push({
+                  pathname: '/review',
+                  params: {
+                    orderId: order.id,
+                    restaurantId: order.restaurant_id,
+                    restaurantName: order.restaurant_name,
+                  },
+                });
+              }}
+              style={styles.reviewPromptBtn}
+            >
+              <MaterialIcons name="star" size={20} color="#FCD34D" />
+              <Text style={styles.reviewPromptText}>Rate & Review Your Order</Text>
+              <MaterialIcons name="chevron-right" size={20} color={theme.primary} />
+            </Pressable>
+          </View>
         ) : null}
 
         <Pressable onPress={() => router.replace('/(tabs)')} style={styles.homeBtn}>
@@ -281,6 +294,8 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between' },
   totalLabel: { fontSize: 15, fontWeight: '600', color: theme.textPrimary },
   totalValue: { fontSize: 18, fontWeight: '700', color: theme.primary },
+  reorderPromptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 16, backgroundColor: theme.primary },
+  reorderPromptText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   reviewPromptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 16, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted, marginBottom: 12 },
   reviewPromptText: { fontSize: 15, fontWeight: '700', color: theme.primary },
   homeBtn: { backgroundColor: theme.backgroundDark, borderRadius: 16, paddingVertical: 18, alignItems: 'center', marginTop: 4 },

@@ -30,7 +30,7 @@ const filterTabs = [
 export default function OrdersScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { customerOrders, loadingOrders, refreshCustomerOrders } = useApp();
+  const { customerOrders, loadingOrders, refreshCustomerOrders, reorder } = useApp();
 
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -87,6 +87,14 @@ export default function OrdersScreen() {
     });
   }, [router]);
 
+  const handleReorder = useCallback(async (order: DbOrder) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const success = await reorder(order);
+    if (success) {
+      router.push('/cart');
+    }
+  }, [reorder, router]);
+
   const filterCounts = useMemo(() => ({
     all: customerOrders.length,
     active: customerOrders.filter(o => ['pending', 'confirmed', 'preparing', 'on_the_way'].includes(o.status)).length,
@@ -131,13 +139,18 @@ export default function OrdersScreen() {
           <Text style={styles.totalValue}>{"\u20A6"}{item.total.toLocaleString()}</Text>
         </View>
 
-        {/* Review prompt for delivered orders */}
+        {/* Reorder + Review buttons for delivered orders */}
         {isDelivered ? (
-          <Pressable onPress={() => handleReviewPress(item)} style={styles.reviewBtn}>
-            <MaterialIcons name="star" size={16} color={theme.primary} />
-            <Text style={styles.reviewBtnText}>Rate & Review</Text>
-            <MaterialIcons name="chevron-right" size={18} color={theme.primary} />
-          </Pressable>
+          <View style={styles.deliveredActions}>
+            <Pressable onPress={() => handleReorder(item)} style={styles.reorderBtn}>
+              <MaterialIcons name="replay" size={16} color="#FFF" />
+              <Text style={styles.reorderBtnText}>Reorder</Text>
+            </Pressable>
+            <Pressable onPress={() => handleReviewPress(item)} style={styles.reviewBtn}>
+              <MaterialIcons name="star" size={16} color={theme.primary} />
+              <Text style={styles.reviewBtnText}>Review</Text>
+            </Pressable>
+          </View>
         ) : null}
 
         {/* Track button for active orders */}
@@ -273,7 +286,10 @@ const styles = StyleSheet.create({
   orderFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   totalLabel: { fontSize: 13, color: theme.textMuted, fontWeight: '500' },
   totalValue: { fontSize: 18, fontWeight: '700', color: theme.textPrimary },
-  reviewBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted },
+  deliveredActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  reorderBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.primary },
+  reorderBtnText: { fontSize: 14, fontWeight: '600', color: '#FFF' },
+  reviewBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted },
   reviewBtnText: { fontSize: 14, fontWeight: '600', color: theme.primary },
   trackHint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10, paddingVertical: 8 },
   trackHintText: { fontSize: 12, color: theme.info, fontWeight: '500' },

@@ -64,6 +64,7 @@ interface AppContextType {
   toggleMenuItemAvailability: (itemId: string) => Promise<void>;
 
   updateProfile: (updates: Partial<DbUserProfile>) => Promise<void>;
+  reorder: (order: DbOrder) => Promise<boolean>;
 
   userLocation: { latitude: number; longitude: number } | null;
   requestLocation: () => Promise<void>;
@@ -463,6 +464,70 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUserProfile(prev => prev ? { ...prev, ...updates } : prev);
   };
 
+  const reorder = async (order: DbOrder): Promise<boolean> => {
+    if (!order.order_items || order.order_items.length === 0) {
+      Alert.alert('Cannot Reorder', 'No items found in this order.');
+      return false;
+    }
+
+    const restaurantId = order.restaurant_id;
+    const restaurantName = order.restaurant_name;
+
+    // Fetch current menu to verify items are still available
+    const { data: currentMenu } = await fetchMenuItems(restaurantId);
+
+    const newCart: CartItem[] = [];
+    const unavailableItems: string[] = [];
+
+    for (const orderItem of order.order_items) {
+      const menuItem = currentMenu.find(m => m.id === orderItem.menu_item_id);
+      if (menuItem && menuItem.is_available) {
+        newCart.push({
+          menuItem,
+          quantity: orderItem.quantity,
+          restaurantId,
+          restaurantName,
+        });
+      } else {
+        unavailableItems.push(orderItem.name);
+      }
+    }
+
+    if (newCart.length === 0) {
+      Alert.alert('Items Unavailable', 'None of the items from this order are currently available.');
+      return false;
+    }
+
+    if (cart.length > 0 && cart[0].restaurantId !== restaurantId) {
+      return new Promise((resolve) => {
+        Alert.alert(
+          'Replace Cart?',
+          'Your cart has items from a different restaurant. Replace with this order?',
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            {
+              text: 'Replace',
+              style: 'destructive',
+              onPress: () => {
+                setCart(newCart);
+                if (unavailableItems.length > 0) {
+                  Alert.alert('Some Items Skipped', `These items are no longer available: ${unavailableItems.join(', ')}`);
+                }
+                resolve(true);
+              },
+            },
+          ]
+        );
+      });
+    }
+
+    setCart(newCart);
+    if (unavailableItems.length > 0) {
+      Alert.alert('Some Items Skipped', `These items are no longer available: ${unavailableItems.join(', ')}`);
+    }
+    return true;
+  };
+
   return (
     <AppContext.Provider value={{
       isLoading, isAuthenticated, userProfile, refreshProfile,
@@ -473,7 +538,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ownerRestaurant, restaurantOrders, restaurantMenuItems, loadingRestaurantData,
       refreshRestaurantData, updateOrderStatus,
       addMenuItem, deleteMenuItemAction, toggleMenuItemAvailability,
-      updateProfile,
+      updateProfile, reorder,
       userLocation, requestLocation,
       pushToken,
       favoriteIds, isFavorite, toggleFavorite, favoriteRestaurants, loadingFavorites,
