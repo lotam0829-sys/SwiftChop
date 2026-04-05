@@ -1,9 +1,11 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Linking, Pressable } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 import { config } from '../constants/config';
+import { getImage } from '../constants/images';
 
 export default function AboutScreen() {
   const insets = useSafeAreaInsets();
@@ -16,9 +18,12 @@ export default function AboutScreen() {
     >
       <Text style={styles.pageTitle}>About SwiftChop</Text>
 
-      <View style={styles.logoWrap}>
-        <MaterialIcons name="bolt" size={36} color="#FFF" />
-      </View>
+      <Image
+        source={getImage('logo')}
+        style={styles.logoImage}
+        contentFit="cover"
+        transition={200}
+      />
       <Text style={styles.appName}>Swift<Text style={{ color: theme.primary }}>Chop</Text></Text>
       <Text style={styles.tagline}>{config.tagline}</Text>
       <Text style={styles.version}>Version 1.0.0 (Build 1)</Text>
@@ -52,7 +57,7 @@ export default function AboutScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF' },
   pageTitle: { fontSize: 24, fontWeight: '700', color: theme.textPrimary, marginBottom: 20, alignSelf: 'flex-start' },
-  logoWrap: { width: 72, height: 72, borderRadius: 20, backgroundColor: theme.backgroundDark, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  logoImage: { width: 72, height: 72, borderRadius: 20, marginBottom: 16 },
   appName: { fontSize: 32, fontWeight: '800', color: theme.textPrimary, marginBottom: 4 },
   tagline: { fontSize: 15, color: theme.textSecondary, marginBottom: 4 },
   version: { fontSize: 13, color: theme.textMuted, marginBottom: 28 },
