@@ -1,7 +1,12 @@
 {
   "expo": {
-    "name": "onspace-app",
-    "slug": "onspace-app",
+    "name": "SwiftChop",
+    "slug": "swiftchop",
+    "notification": {
+      "icon": "./assets/images/logo.jpeg",
+      "color": "#FF6B00",
+      "androidMode": "default"
+    },
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/logo.jpeg",
@@ -25,6 +30,13 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/logo.jpeg",
+          "color": "#FF6B00"
+        }
+      ],
       [
         "expo-splash-screen",
         {

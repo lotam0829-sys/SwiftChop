@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal, AppState } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
@@ -26,9 +27,13 @@ export default function RestaurantDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [showReviews, setShowReviews] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState<Date>(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const visitedRef = useRef(false);
 
-  const { isCurrentlyOpen, closingSoon, closingSoonLabel, formattedHours } = useRestaurantHours(
+  const { isCurrentlyOpen, closingSoon, closingSoonLabel, formattedHours, hours } = useRestaurantHours(
     (restaurant as any)?.operating_hours
   );
 
@@ -53,7 +58,7 @@ export default function RestaurantDetailScreen() {
   useEffect(() => {
     if (!id) return;
     visitedRef.current = true;
-    cancelRestaurantReminder(); // Cancel any pending reminder since user is viewing a restaurant
+    cancelRestaurantReminder();
     setLoading(true);
     Promise.all([
       fetchRestaurantById(id),
@@ -67,7 +72,6 @@ export default function RestaurantDetailScreen() {
     });
   }, [id]);
 
-  // Schedule restaurant reminder when user leaves this screen
   useEffect(() => {
     return () => {
       if (visitedRef.current && restaurant?.name) {
@@ -131,8 +135,53 @@ export default function RestaurantDetailScreen() {
     return reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
   }, [reviews, restaurant]);
 
-  // Determine if ordering is allowed
   const canOrder = isCurrentlyOpen;
+
+  // Get next available open time for scheduling
+  const getNextOpenSlot = useMemo(() => {
+    const now = new Date();
+    const DAYS_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+      const checkDate = new Date(now);
+      checkDate.setDate(now.getDate() + dayOffset);
+      const dayKey = DAYS_ORDER[checkDate.getDay()];
+      const dayHrs = hours[dayKey];
+      if (dayHrs && dayHrs.is_open) {
+        const [openH, openM] = dayHrs.open.split(':').map(Number);
+        const slot = new Date(checkDate);
+        slot.setHours(openH, openM, 0, 0);
+        if (slot > now) return slot;
+        // If today and currently past open time, check if still before close
+        if (dayOffset === 0) {
+          const [closeH, closeM] = dayHrs.close.split(':').map(Number);
+          const closeTime = new Date(checkDate);
+          closeTime.setHours(closeH, closeM, 0, 0);
+          if (now < closeTime) {
+            // Still open, bump to next hour
+            const nextSlot = new Date(now);
+            nextSlot.setHours(now.getHours() + 1, 0, 0, 0);
+            return nextSlot;
+          }
+        }
+      }
+    }
+    return new Date(now.getTime() + 24 * 60 * 60 * 1000); // Fallback: tomorrow
+  }, [hours]);
+
+  const handleScheduleOrder = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setScheduledDate(getNextOpenSlot);
+    setShowScheduleModal(true);
+  };
+
+  const confirmScheduledOrder = () => {
+    setShowScheduleModal(false);
+    const formatted = scheduledDate.toLocaleString('en-NG', {
+      weekday: 'short', day: 'numeric', month: 'short',
+      hour: '2-digit', minute: '2-digit',
+    });
+    router.push({ pathname: '/checkout', params: { scheduledTime: formatted } });
+  };
 
   if (loading) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' }}><ActivityIndicator size="large" color={theme.primary} /></View>;
@@ -173,14 +222,12 @@ export default function RestaurantDetailScreen() {
             </View>
           </View>
           <View style={styles.heroBottom}>
-            {/* Closing soon badge */}
             {closingSoon && closingSoonLabel ? (
               <View style={styles.closingSoonBadge}>
                 <MaterialIcons name="access-time" size={13} color="#FFF" />
                 <Text style={styles.closingSoonText}>{closingSoonLabel}</Text>
               </View>
             ) : null}
-            {/* Closed badge */}
             {!isCurrentlyOpen ? (
               <View style={styles.closedBadge}>
                 <MaterialIcons name="block" size={13} color="#FFF" />
@@ -196,6 +243,20 @@ export default function RestaurantDetailScreen() {
             </View>
           </View>
         </View>
+
+        {/* Schedule order banner when closed */}
+        {!isCurrentlyOpen ? (
+          <Pressable onPress={handleScheduleOrder} style={styles.scheduleBanner}>
+            <View style={styles.scheduleIconWrap}>
+              <MaterialIcons name="schedule" size={24} color={theme.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.scheduleBannerTitle}>Schedule an Order</Text>
+              <Text style={styles.scheduleBannerText}>This restaurant is closed now. Schedule your order for when they reopen.</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={22} color={theme.primary} />
+          </Pressable>
+        ) : null}
 
         <View style={styles.infoRow}>
           <Pressable onPress={() => { Haptics.selectionAsync(); setShowReviews(!showReviews); }} style={styles.infoItem}>
@@ -237,7 +298,7 @@ export default function RestaurantDetailScreen() {
 
         <Text style={styles.description}>{restaurant.description}</Text>
 
-        {/* Reviews Section (collapsible) */}
+        {/* Reviews Section */}
         {showReviews ? (
           <View style={styles.reviewsSection}>
             <View style={styles.reviewsHeader}>
@@ -246,7 +307,6 @@ export default function RestaurantDetailScreen() {
                 <MaterialIcons name="keyboard-arrow-up" size={24} color={theme.textMuted} />
               </Pressable>
             </View>
-
             <View style={styles.ratingSummary}>
               <View style={styles.ratingSummaryLeft}>
                 <Text style={styles.ratingBig}>{avgRating.toFixed(1)}</Text>
@@ -274,7 +334,6 @@ export default function RestaurantDetailScreen() {
                 })}
               </View>
             </View>
-
             {reviews.length > 0 ? (
               <View style={styles.reviewsList}>
                 {reviews.slice(0, 10).map((review) => {
@@ -284,9 +343,7 @@ export default function RestaurantDetailScreen() {
                     <View key={review.id} style={styles.reviewCard}>
                       <View style={styles.reviewCardHeader}>
                         <View style={styles.reviewAvatar}>
-                          <Text style={styles.reviewAvatarText}>
-                            {(review.customer_name || 'C').charAt(0).toUpperCase()}
-                          </Text>
+                          <Text style={styles.reviewAvatarText}>{(review.customer_name || 'C').charAt(0).toUpperCase()}</Text>
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.reviewerName}>{review.customer_name || 'Customer'}</Text>
@@ -297,9 +354,7 @@ export default function RestaurantDetailScreen() {
                           <Text style={styles.reviewRatingText}>{review.rating}</Text>
                         </View>
                       </View>
-                      {review.review_text ? (
-                        <Text style={styles.reviewText}>{review.review_text}</Text>
-                      ) : null}
+                      {review.review_text ? <Text style={styles.reviewText}>{review.review_text}</Text> : null}
                     </View>
                   );
                 })}
@@ -314,9 +369,7 @@ export default function RestaurantDetailScreen() {
         ) : (
           <Pressable onPress={() => { Haptics.selectionAsync(); setShowReviews(true); }} style={styles.showReviewsBtn}>
             <MaterialIcons name="star" size={18} color={theme.primary} />
-            <Text style={styles.showReviewsBtnText}>
-              {reviews.length > 0 ? `See ${reviews.length} reviews` : 'No reviews yet'}
-            </Text>
+            <Text style={styles.showReviewsBtnText}>{reviews.length > 0 ? `See ${reviews.length} reviews` : 'No reviews yet'}</Text>
             <MaterialIcons name="keyboard-arrow-down" size={20} color={theme.primary} />
           </Pressable>
         )}
@@ -387,17 +440,13 @@ export default function RestaurantDetailScreen() {
                 <MaterialIcons name="close" size={24} color={theme.textPrimary} />
               </Pressable>
             </View>
-
             <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Description */}
               {restaurant.description ? (
                 <View style={styles.infoSection}>
                   <Text style={styles.infoSectionTitle}>About</Text>
                   <Text style={styles.infoDescriptionText}>{restaurant.description}</Text>
                 </View>
               ) : null}
-
-              {/* Address */}
               {restaurant.address ? (
                 <View style={styles.infoSection}>
                   <Text style={styles.infoSectionTitle}>Location</Text>
@@ -407,8 +456,6 @@ export default function RestaurantDetailScreen() {
                   </View>
                 </View>
               ) : null}
-
-              {/* Opening Hours */}
               <View style={styles.infoSection}>
                 <Text style={styles.infoSectionTitle}>Opening Hours</Text>
                 <View style={styles.hoursGrid}>
@@ -417,9 +464,7 @@ export default function RestaurantDetailScreen() {
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
                         <Text style={[styles.hoursDayText, h.isToday && { fontWeight: '700', color: theme.primary }]}>{h.label}</Text>
                         {h.isToday ? (
-                          <View style={styles.todayBadge}>
-                            <Text style={styles.todayBadgeText}>Today</Text>
-                          </View>
+                          <View style={styles.todayBadge}><Text style={styles.todayBadgeText}>Today</Text></View>
                         ) : null}
                       </View>
                       <Text style={[styles.hoursTimeText, !h.isOpen && { color: theme.error }]}>
@@ -429,17 +474,106 @@ export default function RestaurantDetailScreen() {
                   ))}
                 </View>
               </View>
-
-              {/* Current status */}
               <View style={[styles.statusCard, isCurrentlyOpen ? { backgroundColor: '#D1FAE5', borderColor: '#6EE7B7' } : { backgroundColor: '#FEE2E2', borderColor: '#FECACA' }]}>
                 <MaterialIcons name={isCurrentlyOpen ? 'check-circle' : 'block'} size={20} color={isCurrentlyOpen ? '#059669' : '#DC2626'} />
                 <Text style={[styles.statusCardText, { color: isCurrentlyOpen ? '#059669' : '#DC2626' }]}>
-                  {isCurrentlyOpen
-                    ? closingSoon ? closingSoonLabel : 'Currently Open'
-                    : 'Currently Closed'}
+                  {isCurrentlyOpen ? (closingSoon ? closingSoonLabel : 'Currently Open') : 'Currently Closed'}
                 </Text>
               </View>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Schedule Order Modal */}
+      <Modal visible={showScheduleModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.scheduleModalContent, { paddingBottom: insets.bottom + 20 }]}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Schedule Order</Text>
+              <Pressable onPress={() => setShowScheduleModal(false)} hitSlop={8}>
+                <MaterialIcons name="close" size={24} color={theme.textPrimary} />
+              </Pressable>
+            </View>
+
+            <View style={styles.scheduleBody}>
+              <View style={styles.scheduleIconLarge}>
+                <MaterialIcons name="event-available" size={40} color={theme.primary} />
+              </View>
+              <Text style={styles.scheduleDescription}>
+                Choose when you would like your order prepared. The restaurant will start making your food at the scheduled time.
+              </Text>
+
+              {/* Date selector */}
+              <Pressable onPress={() => setShowDatePicker(true)} style={styles.schedulePickerBtn}>
+                <MaterialIcons name="calendar-today" size={20} color={theme.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.schedulePickerLabel}>Date</Text>
+                  <Text style={styles.schedulePickerValue}>
+                    {scheduledDate.toLocaleDateString('en-NG', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </Text>
+                </View>
+                <MaterialIcons name="edit" size={18} color={theme.textMuted} />
+              </Pressable>
+
+              {/* Time selector */}
+              <Pressable onPress={() => setShowTimePicker(true)} style={styles.schedulePickerBtn}>
+                <MaterialIcons name="access-time" size={20} color={theme.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.schedulePickerLabel}>Time</Text>
+                  <Text style={styles.schedulePickerValue}>
+                    {scheduledDate.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+                <MaterialIcons name="edit" size={18} color={theme.textMuted} />
+              </Pressable>
+
+              {showDatePicker ? (
+                <DateTimePicker
+                  value={scheduledDate}
+                  mode="date"
+                  minimumDate={new Date()}
+                  maximumDate={new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)}
+                  onChange={(e, date) => {
+                    setShowDatePicker(Platform.OS === 'ios');
+                    if (date) {
+                      const updated = new Date(scheduledDate);
+                      updated.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
+                      setScheduledDate(updated);
+                    }
+                  }}
+                />
+              ) : null}
+
+              {showTimePicker ? (
+                <DateTimePicker
+                  value={scheduledDate}
+                  mode="time"
+                  minuteInterval={15}
+                  onChange={(e, date) => {
+                    setShowTimePicker(Platform.OS === 'ios');
+                    if (date) {
+                      const updated = new Date(scheduledDate);
+                      updated.setHours(date.getHours(), date.getMinutes());
+                      setScheduledDate(updated);
+                    }
+                  }}
+                />
+              ) : null}
+
+              {cartCount > 0 ? (
+                <Pressable onPress={confirmScheduledOrder} style={styles.scheduleConfirmBtn}>
+                  <MaterialIcons name="schedule-send" size={20} color="#FFF" />
+                  <Text style={styles.scheduleConfirmText}>Schedule & Checkout</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.scheduleHint}>
+                  <MaterialIcons name="info-outline" size={16} color={theme.textMuted} />
+                  <Text style={styles.scheduleHintText}>Add items to your cart first, then schedule your order.</Text>
+                </View>
+              )}
+            </View>
           </View>
         </View>
       </Modal>
@@ -460,11 +594,15 @@ const styles = StyleSheet.create({
   heroCuisinePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
   heroCuisinePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   heroCuisinePillText: { fontSize: 12, fontWeight: '700' },
-  // Closing soon / closed badges
   closingSoonBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#D97706', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, alignSelf: 'flex-start', marginBottom: 8 },
   closingSoonText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
   closedBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#DC2626', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, alignSelf: 'flex-start', marginBottom: 8 },
   closedBadgeText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
+  // Schedule banner
+  scheduleBanner: { flexDirection: 'row', alignItems: 'center', gap: 14, marginHorizontal: 16, marginTop: 12, padding: 16, borderRadius: 16, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted },
+  scheduleIconWrap: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
+  scheduleBannerTitle: { fontSize: 15, fontWeight: '700', color: theme.textPrimary, marginBottom: 3 },
+  scheduleBannerText: { fontSize: 13, color: theme.textSecondary, lineHeight: 18 },
 
   infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, paddingHorizontal: 12, gap: 12, flexWrap: 'wrap' },
   infoItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
@@ -548,4 +686,17 @@ const styles = StyleSheet.create({
   todayBadgeText: { fontSize: 10, fontWeight: '700', color: '#FFF' },
   statusCard: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 20, marginBottom: 20, padding: 14, borderRadius: 12, borderWidth: 1 },
   statusCardText: { fontSize: 15, fontWeight: '700' },
+
+  // Schedule Modal
+  scheduleModalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12 },
+  scheduleBody: { paddingHorizontal: 20, alignItems: 'center' },
+  scheduleIconLarge: { width: 72, height: 72, borderRadius: 20, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  scheduleDescription: { fontSize: 14, color: theme.textSecondary, textAlign: 'center', lineHeight: 21, marginBottom: 24 },
+  schedulePickerBtn: { flexDirection: 'row', alignItems: 'center', gap: 14, width: '100%', paddingVertical: 16, paddingHorizontal: 16, borderRadius: 14, backgroundColor: theme.backgroundSecondary, borderWidth: 1, borderColor: theme.border, marginBottom: 10 },
+  schedulePickerLabel: { fontSize: 12, color: theme.textMuted, fontWeight: '500' },
+  schedulePickerValue: { fontSize: 16, fontWeight: '700', color: theme.textPrimary, marginTop: 2 },
+  scheduleConfirmBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, width: '100%', paddingVertical: 18, borderRadius: 16, backgroundColor: theme.primary, marginTop: 16 },
+  scheduleConfirmText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  scheduleHint: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, paddingHorizontal: 16 },
+  scheduleHintText: { flex: 1, fontSize: 13, color: theme.textMuted, lineHeight: 18 },
 });

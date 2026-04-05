@@ -19,6 +19,7 @@ export async function scheduleRestaurantReminder(restaurantName: string) {
         body: `Come back and order your favourite dishes from ${restaurantName}. Your taste buds will thank you!`,
         data: { type: 'restaurant_reminder', restaurantName },
         sound: 'default',
+        categoryIdentifier: 'swiftchop',
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
@@ -56,6 +57,7 @@ export async function scheduleCartReminder(restaurantName: string) {
         body: `Complete your order from ${restaurantName}. Your food is waiting!`,
         data: { type: 'cart_reminder', restaurantName },
         sound: 'default',
+        categoryIdentifier: 'swiftchop',
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,

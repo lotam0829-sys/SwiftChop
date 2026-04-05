@@ -202,6 +202,12 @@ export default function OrderTrackingScreen() {
           <View style={styles.infoRow}><MaterialIcons name="location-on" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.delivery_address}</Text></View>
           <View style={styles.infoRow}><MaterialIcons name="receipt" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.order_number}</Text></View>
           <View style={styles.infoRow}><MaterialIcons name="credit-card" size={18} color={theme.textMuted} /><Text style={styles.infoText}>Card Payment</Text></View>
+          {order.delivery_address?.startsWith('PICKUP:') ? (
+            <View style={styles.pickupBadgeRow}>
+              <MaterialIcons name="storefront" size={16} color="#2563EB" />
+              <Text style={styles.pickupBadgeText}>Pickup Order</Text>
+            </View>
+          ) : null}
           <View style={styles.divider} />
           {(order.order_items || []).map((item, idx) => (
             <Text key={idx} style={styles.itemText}>{item.quantity}x {item.name} — {"\u20A6"}{(item.price * item.quantity).toLocaleString()}</Text>
@@ -294,6 +300,8 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between' },
   totalLabel: { fontSize: 15, fontWeight: '600', color: theme.textPrimary },
   totalValue: { fontSize: 18, fontWeight: '700', color: theme.primary },
+  pickupBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#EFF6FF' },
+  pickupBadgeText: { fontSize: 13, fontWeight: '600', color: '#2563EB' },
   reorderPromptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 16, backgroundColor: theme.primary },
   reorderPromptText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   reviewPromptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 16, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted, marginBottom: 12 },

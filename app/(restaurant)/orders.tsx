@@ -104,8 +104,15 @@ export default function RestaurantOrdersScreen() {
         </View>
 
         <View style={styles.addressRow}>
-          <MaterialIcons name="location-on" size={16} color="#999" />
-          <Text style={styles.addressText} numberOfLines={1}>{item.delivery_address}</Text>
+          <MaterialIcons name={item.delivery_address?.startsWith('PICKUP:') ? 'storefront' : 'location-on'} size={16} color="#999" />
+          <Text style={styles.addressText} numberOfLines={1}>
+            {item.delivery_address?.startsWith('PICKUP:') ? item.delivery_address.replace('PICKUP: ', 'Pickup: ') : item.delivery_address}
+          </Text>
+          {item.delivery_address?.startsWith('PICKUP:') ? (
+            <View style={styles.pickupTag}>
+              <Text style={styles.pickupTagText}>Pickup</Text>
+            </View>
+          ) : null}
         </View>
 
         {config.next ? (
@@ -237,6 +244,8 @@ const styles = StyleSheet.create({
   moreItems: { fontSize: 12, color: '#999', fontStyle: 'italic', marginTop: 2 },
   addressRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   addressText: { fontSize: 13, color: '#999', flex: 1 },
+  pickupTag: { backgroundColor: '#DBEAFE', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  pickupTagText: { fontSize: 10, fontWeight: '700', color: '#2563EB' },
   actionsRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
   rejectBtn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: '#EF4444' },
   rejectText: { fontSize: 14, fontWeight: '600', color: '#EF4444' },
