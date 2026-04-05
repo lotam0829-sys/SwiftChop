@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal, AppState } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,6 +11,8 @@ import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
 import { DbMenuItem, DbRestaurant, DbReview, fetchRestaurantById, fetchMenuItems, fetchRestaurantReviews } from '../../services/supabaseData';
 import { getCuisineColor, parseCuisines } from '../../constants/config';
+import { useRestaurantHours } from '../../hooks/useRestaurantHours';
+import { scheduleRestaurantReminder, cancelRestaurantReminder } from '../../services/notificationScheduler';
 
 export default function RestaurantDetailScreen() {
   const router = useRouter();
@@ -23,6 +25,12 @@ export default function RestaurantDetailScreen() {
   const [reviews, setReviews] = useState<DbReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [showReviews, setShowReviews] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
+  const visitedRef = useRef(false);
+
+  const { isCurrentlyOpen, closingSoon, closingSoonLabel, formattedHours } = useRestaurantHours(
+    (restaurant as any)?.operating_hours
+  );
 
   const categories = useMemo(() => {
     const cats: { id: string; name: string; items: DbMenuItem[] }[] = [];
@@ -44,6 +52,8 @@ export default function RestaurantDetailScreen() {
 
   useEffect(() => {
     if (!id) return;
+    visitedRef.current = true;
+    cancelRestaurantReminder(); // Cancel any pending reminder since user is viewing a restaurant
     setLoading(true);
     Promise.all([
       fetchRestaurantById(id),
@@ -56,6 +66,15 @@ export default function RestaurantDetailScreen() {
       setLoading(false);
     });
   }, [id]);
+
+  // Schedule restaurant reminder when user leaves this screen
+  useEffect(() => {
+    return () => {
+      if (visitedRef.current && restaurant?.name) {
+        scheduleRestaurantReminder(restaurant.name);
+      }
+    };
+  }, [restaurant?.name]);
 
   useEffect(() => {
     if (categories.length > 0 && !activeCategory) {
@@ -89,7 +108,7 @@ export default function RestaurantDetailScreen() {
       const maxTime = Math.round(minTime + 10);
       return `${minTime}-${maxTime} min`;
     }
-    return null; // Don't show delivery time if distance cannot be calculated
+    return null;
   }, [distanceKm]);
 
   const distanceLabel = distanceKm !== null ? (distanceKm < 1 ? `${(distanceKm * 1000).toFixed(0)}m` : `${distanceKm.toFixed(1)}km`) : null;
@@ -101,7 +120,6 @@ export default function RestaurantDetailScreen() {
     return getImage(imageKey);
   };
 
-  // Rating distribution
   const ratingDistribution = useMemo(() => {
     const dist = [0, 0, 0, 0, 0];
     reviews.forEach(r => { if (r.rating >= 1 && r.rating <= 5) dist[r.rating - 1]++; });
@@ -112,6 +130,9 @@ export default function RestaurantDetailScreen() {
     if (reviews.length === 0) return restaurant?.rating || 0;
     return reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
   }, [reviews, restaurant]);
+
+  // Determine if ordering is allowed
+  const canOrder = isCurrentlyOpen;
 
   if (loading) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' }}><ActivityIndicator size="large" color={theme.primary} /></View>;
@@ -132,6 +153,9 @@ export default function RestaurantDetailScreen() {
               <MaterialIcons name="arrow-back" size={22} color="#FFF" />
             </Pressable>
             <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Pressable onPress={() => { Haptics.selectionAsync(); setShowInfo(true); }} style={styles.backBtn}>
+                <MaterialIcons name="info-outline" size={22} color="#FFF" />
+              </Pressable>
               <Pressable
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); toggleFavorite(id!); }}
                 style={styles.backBtn}
@@ -149,13 +173,27 @@ export default function RestaurantDetailScreen() {
             </View>
           </View>
           <View style={styles.heroBottom}>
+            {/* Closing soon badge */}
+            {closingSoon && closingSoonLabel ? (
+              <View style={styles.closingSoonBadge}>
+                <MaterialIcons name="access-time" size={13} color="#FFF" />
+                <Text style={styles.closingSoonText}>{closingSoonLabel}</Text>
+              </View>
+            ) : null}
+            {/* Closed badge */}
+            {!isCurrentlyOpen ? (
+              <View style={styles.closedBadge}>
+                <MaterialIcons name="block" size={13} color="#FFF" />
+                <Text style={styles.closedBadgeText}>Currently Closed</Text>
+              </View>
+            ) : null}
             <Text style={styles.heroName}>{restaurant.name}</Text>
             <View style={styles.heroCuisinePills}>
-            {parseCuisines(restaurant.cuisine).map((c, ci) => {
-              const cc = getCuisineColor(c);
-              return <View key={ci} style={[styles.heroCuisinePill, { backgroundColor: cc.bg }]}><Text style={[styles.heroCuisinePillText, { color: cc.text }]}>{c}</Text></View>;
-            })}
-          </View>
+              {parseCuisines(restaurant.cuisine).map((c, ci) => {
+                const cc = getCuisineColor(c);
+                return <View key={ci} style={[styles.heroCuisinePill, { backgroundColor: cc.bg }]}><Text style={[styles.heroCuisinePillText, { color: cc.text }]}>{c}</Text></View>;
+              })}
+            </View>
           </View>
         </View>
 
@@ -209,7 +247,6 @@ export default function RestaurantDetailScreen() {
               </Pressable>
             </View>
 
-            {/* Rating summary */}
             <View style={styles.ratingSummary}>
               <View style={styles.ratingSummaryLeft}>
                 <Text style={styles.ratingBig}>{avgRating.toFixed(1)}</Text>
@@ -238,7 +275,6 @@ export default function RestaurantDetailScreen() {
               </View>
             </View>
 
-            {/* Individual reviews */}
             {reviews.length > 0 ? (
               <View style={styles.reviewsList}>
                 {reviews.slice(0, 10).map((review) => {
@@ -299,7 +335,7 @@ export default function RestaurantDetailScreen() {
           {activeItems.map((item) => {
             const inCart = cart.find(ci => ci.menuItem.id === item.id);
             return (
-              <View key={item.id} style={[styles.menuItem, !item.is_available && { opacity: 0.5 }]}>
+              <View key={item.id} style={[styles.menuItem, (!item.is_available || !canOrder) && { opacity: 0.5 }]}>
                 <View style={{ flex: 1, paddingRight: 12 }}>
                   {item.is_popular ? (
                     <View style={styles.popularBadge}>
@@ -313,12 +349,12 @@ export default function RestaurantDetailScreen() {
                 </View>
                 <View>
                   <Image source={getItemImage(item.image_key)} style={styles.menuItemImage} contentFit="cover" />
-                  {item.is_available ? (
+                  {item.is_available && canOrder ? (
                     <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); addToCart(item, restaurant.id, restaurant.name); }} style={[styles.addBtnStyle, inCart ? styles.addBtnActive : null]}>
                       {inCart ? <Text style={styles.addBtnTextActive}>{inCart.quantity}</Text> : <MaterialIcons name="add" size={22} color="#FFF" />}
                     </Pressable>
                   ) : (
-                    <View style={styles.unavailableBadge}><Text style={styles.unavailableText}>Unavailable</Text></View>
+                    <View style={styles.unavailableBadge}><Text style={styles.unavailableText}>{!canOrder ? 'Closed' : 'Unavailable'}</Text></View>
                   )}
                 </View>
               </View>
@@ -327,6 +363,7 @@ export default function RestaurantDetailScreen() {
         </View>
       </ScrollView>
 
+      {/* Cart bar */}
       {cartCount > 0 ? (
         <View style={[styles.cartBar, { paddingBottom: insets.bottom + 12 }]}>
           <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push('/cart'); }} style={styles.cartBarInner}>
@@ -338,6 +375,74 @@ export default function RestaurantDetailScreen() {
           </Pressable>
         </View>
       ) : null}
+
+      {/* Restaurant Info Modal */}
+      <Modal visible={showInfo} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { paddingBottom: insets.bottom + 20 }]}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Restaurant Info</Text>
+              <Pressable onPress={() => setShowInfo(false)} hitSlop={8}>
+                <MaterialIcons name="close" size={24} color={theme.textPrimary} />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Description */}
+              {restaurant.description ? (
+                <View style={styles.infoSection}>
+                  <Text style={styles.infoSectionTitle}>About</Text>
+                  <Text style={styles.infoDescriptionText}>{restaurant.description}</Text>
+                </View>
+              ) : null}
+
+              {/* Address */}
+              {restaurant.address ? (
+                <View style={styles.infoSection}>
+                  <Text style={styles.infoSectionTitle}>Location</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <MaterialIcons name="location-on" size={18} color={theme.primary} />
+                    <Text style={styles.infoDescriptionText}>{restaurant.address}</Text>
+                  </View>
+                </View>
+              ) : null}
+
+              {/* Opening Hours */}
+              <View style={styles.infoSection}>
+                <Text style={styles.infoSectionTitle}>Opening Hours</Text>
+                <View style={styles.hoursGrid}>
+                  {formattedHours.map((h) => (
+                    <View key={h.day} style={[styles.hoursRow, h.isToday && styles.hoursRowToday]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <Text style={[styles.hoursDayText, h.isToday && { fontWeight: '700', color: theme.primary }]}>{h.label}</Text>
+                        {h.isToday ? (
+                          <View style={styles.todayBadge}>
+                            <Text style={styles.todayBadgeText}>Today</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={[styles.hoursTimeText, !h.isOpen && { color: theme.error }]}>
+                        {h.isOpen ? `${h.open} - ${h.close}` : 'Closed'}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              {/* Current status */}
+              <View style={[styles.statusCard, isCurrentlyOpen ? { backgroundColor: '#D1FAE5', borderColor: '#6EE7B7' } : { backgroundColor: '#FEE2E2', borderColor: '#FECACA' }]}>
+                <MaterialIcons name={isCurrentlyOpen ? 'check-circle' : 'block'} size={20} color={isCurrentlyOpen ? '#059669' : '#DC2626'} />
+                <Text style={[styles.statusCardText, { color: isCurrentlyOpen ? '#059669' : '#DC2626' }]}>
+                  {isCurrentlyOpen
+                    ? closingSoon ? closingSoonLabel : 'Currently Open'
+                    : 'Currently Closed'}
+                </Text>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -350,11 +455,17 @@ const styles = StyleSheet.create({
   backBtn: { width: 42, height: 42, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' },
   cartBadge: { position: 'absolute', top: 2, right: 2, backgroundColor: theme.primary, borderRadius: 9, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center' },
   cartBadgeText: { fontSize: 10, fontWeight: '700', color: '#FFF' },
-  heroBottom: { position: 'absolute', bottom: 20, left: 16 },
+  heroBottom: { position: 'absolute', bottom: 20, left: 16, right: 16 },
   heroName: { fontSize: 26, fontWeight: '800', color: '#FFF' },
   heroCuisinePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
   heroCuisinePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   heroCuisinePillText: { fontSize: 12, fontWeight: '700' },
+  // Closing soon / closed badges
+  closingSoonBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#D97706', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, alignSelf: 'flex-start', marginBottom: 8 },
+  closingSoonText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
+  closedBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#DC2626', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, alignSelf: 'flex-start', marginBottom: 8 },
+  closedBadgeText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
+
   infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, paddingHorizontal: 12, gap: 12, flexWrap: 'wrap' },
   infoItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   infoValue: { fontSize: 14, fontWeight: '700', color: theme.textPrimary },
@@ -364,7 +475,6 @@ const styles = StyleSheet.create({
   locationText: { fontSize: 13, color: theme.textSecondary },
   description: { fontSize: 14, color: theme.textSecondary, lineHeight: 20, paddingHorizontal: 16, marginBottom: 12 },
 
-  // Reviews section
   showReviewsBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginHorizontal: 16, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.primaryFaint, marginBottom: 16 },
   showReviewsBtnText: { fontSize: 14, fontWeight: '600', color: theme.primary },
   reviewsSection: { paddingHorizontal: 16, marginBottom: 16 },
@@ -419,4 +529,23 @@ const styles = StyleSheet.create({
   cartCountText: { fontSize: 13, fontWeight: '700', color: '#FFF' },
   cartBarLabel: { fontSize: 16, fontWeight: '700', color: '#FFF' },
   cartBarTotal: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+
+  // Info Modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 12, maxHeight: '80%' },
+  modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border, alignSelf: 'center', marginBottom: 12 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 16 },
+  modalTitle: { fontSize: 22, fontWeight: '700', color: theme.textPrimary },
+  infoSection: { paddingHorizontal: 20, marginBottom: 20 },
+  infoSectionTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary, marginBottom: 10 },
+  infoDescriptionText: { fontSize: 15, color: theme.textSecondary, lineHeight: 22 },
+  hoursGrid: { gap: 2 },
+  hoursRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8 },
+  hoursRowToday: { backgroundColor: theme.primaryFaint },
+  hoursDayText: { fontSize: 15, fontWeight: '500', color: theme.textPrimary },
+  hoursTimeText: { fontSize: 14, fontWeight: '600', color: theme.textSecondary },
+  todayBadge: { backgroundColor: theme.primary, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+  todayBadgeText: { fontSize: 10, fontWeight: '700', color: '#FFF' },
+  statusCard: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 20, marginBottom: 20, padding: 14, borderRadius: 12, borderWidth: 1 },
+  statusCardText: { fontSize: 15, fontWeight: '700' },
 });

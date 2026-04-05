@@ -17,6 +17,7 @@ import {
 import { foodCategories } from '../services/mockData';
 import { config, calculateDeliveryFee } from '../constants/config';
 import * as Location from 'expo-location';
+import { scheduleCartReminder, cancelCartReminder, cancelRestaurantReminder } from '../services/notificationScheduler';
 
 export { foodCategories };
 
@@ -216,6 +217,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     AsyncStorage.setItem('swiftchop_cart', JSON.stringify(cart));
+    // Schedule cart abandonment reminder when items exist
+    if (cart.length > 0) {
+      const restaurantName = cart[0].restaurantName;
+      scheduleCartReminder(restaurantName);
+    } else {
+      cancelCartReminder();
+    }
   }, [cart]);
 
   useEffect(() => {
@@ -281,7 +289,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setCart(cart.map(ci => ci.menuItem.id === itemId ? { ...ci, quantity } : ci));
   };
 
-  const clearCart = () => setCart([]);
+  const clearCart = () => {
+    setCart([]);
+    cancelCartReminder();
+  };
   const cartTotal = cart.reduce((sum, ci) => sum + ci.menuItem.price * ci.quantity, 0);
   const cartCount = cart.reduce((sum, ci) => sum + ci.quantity, 0);
 
@@ -343,6 +354,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     if (data) {
       setCart([]);
+      cancelCartReminder();
+      cancelRestaurantReminder();
       const orderWithItems: DbOrder = {
         ...data,
         order_items: cart.map(ci => ({

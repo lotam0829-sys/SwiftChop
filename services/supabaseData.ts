@@ -362,7 +362,7 @@ export async function createRestaurantForOwner(ownerId: string, name: string): P
   return { data, error: null };
 }
 
-export async function updateRestaurant(id: string, updates: Partial<DbRestaurant>): Promise<{ error: string | null }> {
+export async function updateRestaurant(id: string, updates: Partial<DbRestaurant> & { operating_hours?: any }): Promise<{ error: string | null }> {
   const { error } = await supabase
     .from('restaurants')
     .update({ ...updates, updated_at: new Date().toISOString() })

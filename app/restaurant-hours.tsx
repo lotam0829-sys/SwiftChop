@@ -1,31 +1,39 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
 import { useAlert } from '@/template';
+import { useApp } from '../contexts/AppContext';
+import { updateRestaurant } from '../services/supabaseData';
 
-interface DaySchedule {
-  day: string;
-  shortDay: string;
-  isOpen: boolean;
-  openTime: string;
-  closeTime: string;
+const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+const DAY_LABELS: Record<string, string> = {
+  sunday: 'Sunday', monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
+  thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday',
+};
+
+interface DayHours {
+  open: string;
+  close: string;
+  is_open: boolean;
 }
 
-const defaultSchedule: DaySchedule[] = [
-  { day: 'Monday', shortDay: 'Mon', isOpen: true, openTime: '08:00', closeTime: '22:00' },
-  { day: 'Tuesday', shortDay: 'Tue', isOpen: true, openTime: '08:00', closeTime: '22:00' },
-  { day: 'Wednesday', shortDay: 'Wed', isOpen: true, openTime: '08:00', closeTime: '22:00' },
-  { day: 'Thursday', shortDay: 'Thu', isOpen: true, openTime: '08:00', closeTime: '22:00' },
-  { day: 'Friday', shortDay: 'Fri', isOpen: true, openTime: '08:00', closeTime: '23:00' },
-  { day: 'Saturday', shortDay: 'Sat', isOpen: true, openTime: '09:00', closeTime: '23:00' },
-  { day: 'Sunday', shortDay: 'Sun', isOpen: false, openTime: '10:00', closeTime: '20:00' },
-];
+type OperatingHours = Record<string, DayHours>;
+
+const defaultHours: OperatingHours = {
+  sunday: { open: '09:00', close: '22:00', is_open: true },
+  monday: { open: '09:00', close: '22:00', is_open: true },
+  tuesday: { open: '09:00', close: '22:00', is_open: true },
+  wednesday: { open: '09:00', close: '22:00', is_open: true },
+  thursday: { open: '09:00', close: '22:00', is_open: true },
+  friday: { open: '09:00', close: '23:00', is_open: true },
+  saturday: { open: '09:00', close: '23:00', is_open: true },
+};
 
 const timeOptions = [
-  '06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00',
+  '05:00', '06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00',
   '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00',
   '20:00', '21:00', '22:00', '23:00', '00:00',
 ];
@@ -33,25 +41,53 @@ const timeOptions = [
 export default function RestaurantHoursScreen() {
   const insets = useSafeAreaInsets();
   const { showAlert } = useAlert();
-  const [schedule, setSchedule] = useState<DaySchedule[]>(defaultSchedule);
-  const [editingDay, setEditingDay] = useState<number | null>(null);
-  const [editField, setEditField] = useState<'open' | 'close' | null>(null);
+  const { ownerRestaurant, refreshRestaurantData } = useApp();
 
-  const toggleDay = (index: number) => {
+  const [hours, setHours] = useState<OperatingHours>(defaultHours);
+  const [editingDay, setEditingDay] = useState<string | null>(null);
+  const [editField, setEditField] = useState<'open' | 'close' | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Load existing hours from restaurant
+  useEffect(() => {
+    if (ownerRestaurant) {
+      const existing = (ownerRestaurant as any).operating_hours;
+      if (existing && typeof existing === 'object') {
+        setHours({ ...defaultHours, ...existing });
+      }
+    }
+  }, [ownerRestaurant]);
+
+  const toggleDay = (day: string) => {
     Haptics.selectionAsync();
-    setSchedule(prev => prev.map((d, i) => i === index ? { ...d, isOpen: !d.isOpen } : d));
+    setHours(prev => ({
+      ...prev,
+      [day]: { ...prev[day], is_open: !prev[day].is_open },
+    }));
   };
 
-  const setTime = (index: number, field: 'openTime' | 'closeTime', time: string) => {
+  const setTime = (day: string, field: 'open' | 'close', time: string) => {
     Haptics.selectionAsync();
-    setSchedule(prev => prev.map((d, i) => i === index ? { ...d, [field]: time } : d));
+    setHours(prev => ({
+      ...prev,
+      [day]: { ...prev[day], [field]: time },
+    }));
     setEditingDay(null);
     setEditField(null);
   };
 
-  const handleSave = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    showAlert('Saved', 'Operating hours updated successfully');
+  const handleSave = async () => {
+    if (!ownerRestaurant) return;
+    setSaving(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const { error } = await updateRestaurant(ownerRestaurant.id, { operating_hours: hours } as any);
+    setSaving(false);
+    if (error) {
+      showAlert('Error', 'Failed to save operating hours. Please try again.');
+    } else {
+      await refreshRestaurantData();
+      showAlert('Saved', 'Operating hours updated successfully');
+    }
   };
 
   return (
@@ -62,76 +98,81 @@ export default function RestaurantHoursScreen() {
       >
         <View style={styles.infoCard}>
           <MaterialIcons name="info-outline" size={18} color={theme.primary} />
-          <Text style={styles.infoText}>Set your operating hours. Customers will only be able to order during these times.</Text>
+          <Text style={styles.infoText}>Set your operating hours for each day. Customers will see when you are open and will be notified when you are about to close.</Text>
         </View>
 
-        {schedule.map((day, index) => (
-          <View key={day.day} style={styles.dayCard}>
-            <View style={styles.dayHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.dayName}>{day.day}</Text>
-                <Text style={styles.dayStatus}>
-                  {day.isOpen ? `${day.openTime} - ${day.closeTime}` : 'Closed'}
-                </Text>
-              </View>
-              <Pressable onPress={() => toggleDay(index)} style={[styles.toggle, day.isOpen && styles.toggleActive]}>
-                <View style={[styles.toggleDot, day.isOpen && styles.toggleDotActive]} />
-              </Pressable>
-            </View>
-
-            {day.isOpen ? (
-              <View style={styles.timeRow}>
-                <View style={styles.timeBlock}>
-                  <Text style={styles.timeLabel}>Opens</Text>
-                  <Pressable
-                    onPress={() => { setEditingDay(index); setEditField('open'); }}
-                    style={[styles.timeBtn, editingDay === index && editField === 'open' && styles.timeBtnActive]}
-                  >
-                    <MaterialIcons name="schedule" size={16} color={theme.primary} />
-                    <Text style={styles.timeBtnText}>{day.openTime}</Text>
-                  </Pressable>
+        {DAYS.map((day) => {
+          const dayData = hours[day];
+          const isEditing = editingDay === day;
+          return (
+            <View key={day} style={styles.dayCard}>
+              <View style={styles.dayHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.dayName}>{DAY_LABELS[day]}</Text>
+                  <Text style={styles.dayStatus}>
+                    {dayData.is_open ? `${dayData.open} - ${dayData.close}` : 'Closed'}
+                  </Text>
                 </View>
-                <MaterialIcons name="arrow-forward" size={16} color="#666" style={{ marginTop: 20 }} />
-                <View style={styles.timeBlock}>
-                  <Text style={styles.timeLabel}>Closes</Text>
-                  <Pressable
-                    onPress={() => { setEditingDay(index); setEditField('close'); }}
-                    style={[styles.timeBtn, editingDay === index && editField === 'close' && styles.timeBtnActive]}
-                  >
-                    <MaterialIcons name="schedule" size={16} color={theme.primary} />
-                    <Text style={styles.timeBtnText}>{day.closeTime}</Text>
-                  </Pressable>
-                </View>
+                <Pressable onPress={() => toggleDay(day)} style={[styles.toggle, dayData.is_open && styles.toggleActive]}>
+                  <View style={[styles.toggleDot, dayData.is_open && styles.toggleDotActive]} />
+                </Pressable>
               </View>
-            ) : null}
 
-            {editingDay === index && editField ? (
-              <View style={styles.timePickerRow}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }}>
-                  {timeOptions.map((time) => (
+              {dayData.is_open ? (
+                <View style={styles.timeRow}>
+                  <View style={styles.timeBlock}>
+                    <Text style={styles.timeLabel}>Opens</Text>
                     <Pressable
-                      key={time}
-                      onPress={() => setTime(index, editField === 'open' ? 'openTime' : 'closeTime', time)}
-                      style={[
-                        styles.timeOption,
-                        (editField === 'open' ? day.openTime : day.closeTime) === time && styles.timeOptionActive,
-                      ]}
+                      onPress={() => { setEditingDay(day); setEditField('open'); }}
+                      style={[styles.timeBtn, isEditing && editField === 'open' && styles.timeBtnActive]}
                     >
-                      <Text style={[
-                        styles.timeOptionText,
-                        (editField === 'open' ? day.openTime : day.closeTime) === time && { color: '#FFF' },
-                      ]}>{time}</Text>
+                      <MaterialIcons name="schedule" size={16} color={theme.primary} />
+                      <Text style={styles.timeBtnText}>{dayData.open}</Text>
                     </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            ) : null}
-          </View>
-        ))}
+                  </View>
+                  <MaterialIcons name="arrow-forward" size={16} color="#666" style={{ marginTop: 20 }} />
+                  <View style={styles.timeBlock}>
+                    <Text style={styles.timeLabel}>Closes</Text>
+                    <Pressable
+                      onPress={() => { setEditingDay(day); setEditField('close'); }}
+                      style={[styles.timeBtn, isEditing && editField === 'close' && styles.timeBtnActive]}
+                    >
+                      <MaterialIcons name="schedule" size={16} color={theme.primary} />
+                      <Text style={styles.timeBtnText}>{dayData.close}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+
+              {isEditing && editField ? (
+                <View style={styles.timePickerRow}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }}>
+                    {timeOptions.map((time) => {
+                      const currentVal = editField === 'open' ? dayData.open : dayData.close;
+                      return (
+                        <Pressable
+                          key={time}
+                          onPress={() => setTime(day, editField, time)}
+                          style={[styles.timeOption, currentVal === time && styles.timeOptionActive]}
+                        >
+                          <Text style={[styles.timeOptionText, currentVal === time && { color: '#FFF' }]}>{time}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
 
         <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-          <Pressable onPress={handleSave} style={styles.saveBtn}>
-            <Text style={styles.saveBtnText}>Save Hours</Text>
+          <Pressable onPress={handleSave} style={styles.saveBtn} disabled={saving}>
+            {saving ? (
+              <ActivityIndicator color="#FFF" />
+            ) : (
+              <Text style={styles.saveBtnText}>Save Hours</Text>
+            )}
           </Pressable>
         </View>
       </ScrollView>
