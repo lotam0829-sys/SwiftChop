@@ -15,7 +15,7 @@ export default function RestaurantDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { addToCart, cart, cartCount, cartTotal, userLocation } = useApp();
+  const { addToCart, cart, cartCount, cartTotal, userLocation, isFavorite, toggleFavorite } = useApp();
 
   const [restaurant, setRestaurant] = useState<DbRestaurant | null>(null);
   const [menuItems, setMenuItems] = useState<DbMenuItem[]>([]);
@@ -130,10 +130,22 @@ export default function RestaurantDetailScreen() {
             <Pressable onPress={() => router.back()} style={styles.backBtn}>
               <MaterialIcons name="arrow-back" size={22} color="#FFF" />
             </Pressable>
-            <Pressable onPress={() => router.push('/cart')} style={styles.backBtn}>
-              <MaterialIcons name="shopping-bag" size={22} color="#FFF" />
-              {cartCount > 0 ? <View style={styles.cartBadge}><Text style={styles.cartBadgeText}>{cartCount}</Text></View> : null}
-            </Pressable>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Pressable
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); toggleFavorite(id!); }}
+                style={styles.backBtn}
+              >
+                <MaterialIcons
+                  name={isFavorite(id!) ? 'favorite' : 'favorite-border'}
+                  size={22}
+                  color={isFavorite(id!) ? '#EF4444' : '#FFF'}
+                />
+              </Pressable>
+              <Pressable onPress={() => router.push('/cart')} style={styles.backBtn}>
+                <MaterialIcons name="shopping-bag" size={22} color="#FFF" />
+                {cartCount > 0 ? <View style={styles.cartBadge}><Text style={styles.cartBadgeText}>{cartCount}</Text></View> : null}
+              </Pressable>
+            </View>
           </View>
           <View style={styles.heroBottom}>
             <Text style={styles.heroName}>{restaurant.name}</Text>

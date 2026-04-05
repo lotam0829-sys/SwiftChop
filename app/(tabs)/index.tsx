@@ -16,7 +16,7 @@ import { DbRestaurant } from '../../services/supabaseData';
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { userProfile, restaurants, loadingRestaurants, cartCount, userLocation, requestLocation } = useApp();
+  const { userProfile, restaurants, loadingRestaurants, cartCount, userLocation, requestLocation, favoriteRestaurants, isFavorite, toggleFavorite } = useApp();
   const [activeCategory, setActiveCategory] = useState('all');
   const [locationName, setLocationName] = useState<string | null>(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
@@ -192,6 +192,55 @@ export default function HomeScreen() {
           <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 40 }} />
         ) : (
           <>
+            {/* Favorites Section */}
+            {favoriteRestaurants.length > 0 ? (
+              <View style={styles.section}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, marginBottom: 14 }}>
+                  <MaterialIcons name="favorite" size={20} color="#EF4444" />
+                  <Text style={styles.sectionTitle}>Your Favourites</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 14 }}>
+                  {favoriteRestaurants.map((r) => {
+                    const dist = getDistanceLabel(r);
+                    const delivTime = getDeliveryTimeLabel(r);
+                    return (
+                      <Pressable key={r.id} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/restaurant/${r.id}`); }} style={styles.favCard}>
+                        <View style={styles.favImageWrap}>
+                          <Image source={getImage(r.image_key)} style={styles.favImage} contentFit="cover" />
+                          <Pressable
+                            onPress={(e) => { e.stopPropagation(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); toggleFavorite(r.id); }}
+                            style={styles.favHeartBtn}
+                            hitSlop={8}
+                          >
+                            <MaterialIcons name="favorite" size={18} color="#EF4444" />
+                          </Pressable>
+                        </View>
+                        <View style={styles.favInfo}>
+                          <Text style={styles.favName} numberOfLines={1}>{r.name}</Text>
+                          <View style={styles.favMeta}>
+                            <MaterialIcons name="star" size={13} color="#FCD34D" />
+                            <Text style={styles.favMetaText}>{r.rating}</Text>
+                            {dist ? (
+                              <>
+                                <View style={styles.metaDot} />
+                                <Text style={[styles.favMetaText, { color: theme.primary }]}>{dist}</Text>
+                              </>
+                            ) : null}
+                            {delivTime ? (
+                              <>
+                                <View style={styles.metaDot} />
+                                <Text style={styles.favMetaText}>{delivTime}</Text>
+                              </>
+                            ) : null}
+                          </View>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : null}
+
             {featured.length > 0 ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Featured</Text>
@@ -239,12 +288,21 @@ export default function HomeScreen() {
                   const delivTime = getDeliveryTimeLabel(r);
                   return (
                     <Pressable key={r.id} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/restaurant/${r.id}`); }} style={styles.restaurantCard}>
-                      <Image source={getImage(r.image_key)} style={styles.restaurantImage} contentFit="cover" />
-                      {!r.is_open ? (
-                        <View style={styles.closedOverlay}>
-                          <Text style={styles.closedText}>Closed</Text>
-                        </View>
-                      ) : null}
+                      <View>
+                        <Image source={getImage(r.image_key)} style={styles.restaurantImage} contentFit="cover" />
+                        {!r.is_open ? (
+                          <View style={styles.closedOverlay}>
+                            <Text style={styles.closedText}>Closed</Text>
+                          </View>
+                        ) : null}
+                        <Pressable
+                          onPress={(e) => { e.stopPropagation(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); toggleFavorite(r.id); }}
+                          style={styles.heartBtn}
+                          hitSlop={8}
+                        >
+                          <MaterialIcons name={isFavorite(r.id) ? 'favorite' : 'favorite-border'} size={22} color={isFavorite(r.id) ? '#EF4444' : 'rgba(255,255,255,0.85)'} />
+                        </Pressable>
+                      </View>
                       <View style={styles.restaurantInfo}>
                         <View style={styles.restaurantRow}>
                           <Text style={styles.restaurantName} numberOfLines={1}>{r.name}</Text>
@@ -376,6 +434,17 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', paddingVertical: 48 },
   emptyTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginTop: 12 },
   emptySubtitle: { fontSize: 14, color: theme.textSecondary, marginTop: 4 },
+  // Favorites
+  favCard: { width: 160, borderRadius: 14, backgroundColor: '#FFF', overflow: 'hidden', ...theme.shadow.small },
+  favImageWrap: { position: 'relative' },
+  favImage: { width: 160, height: 100, borderTopLeftRadius: 14, borderTopRightRadius: 14 },
+  favHeartBtn: { position: 'absolute', top: 6, right: 6, width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.9)', alignItems: 'center', justifyContent: 'center' },
+  favInfo: { padding: 10 },
+  favName: { fontSize: 14, fontWeight: '700', color: theme.textPrimary },
+  favMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  favMetaText: { fontSize: 11, fontWeight: '600', color: theme.textMuted },
+  // Heart button on restaurant cards
+  heartBtn: { position: 'absolute', top: 10, right: 10, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.3)', alignItems: 'center', justifyContent: 'center' },
   // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 20, paddingHorizontal: 20 },

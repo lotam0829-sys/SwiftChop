@@ -12,6 +12,7 @@ import {
   fetchOwnerRestaurant, createRestaurantForOwner,
   insertMenuItem, updateMenuItem, deleteMenuItemById,
   dispatchToShipday, fetchOrderById, savePushToken,
+  fetchFavorites, addFavorite as addFavoriteDb, removeFavorite as removeFavoriteDb,
 } from '../services/supabaseData';
 import { foodCategories } from '../services/mockData';
 import { config, calculateDeliveryFee } from '../constants/config';
@@ -69,6 +70,13 @@ interface AppContextType {
 
   // Push notifications
   pushToken: string | null;
+
+  // Favorites
+  favoriteIds: string[];
+  isFavorite: (restaurantId: string) => boolean;
+  toggleFavorite: (restaurantId: string) => Promise<void>;
+  favoriteRestaurants: DbRestaurant[];
+  loadingFavorites: boolean;
 }
 
 const AppContext = createContext<AppContextType>({} as AppContextType);
@@ -100,6 +108,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loadingRestaurantData, setLoadingRestaurantData] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [pushToken, setPushToken] = useState<string | null>(null);
+  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
+  const [loadingFavorites, setLoadingFavorites] = useState(false);
 
   const notificationListener = useRef<any>();
   const responseListener = useRef<any>();
@@ -211,6 +221,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!userProfile) return;
     if (userProfile.role === 'customer') {
       refreshCustomerOrders();
+      loadFavorites();
     } else if (userProfile.role === 'restaurant') {
       refreshRestaurantData();
     }
@@ -407,6 +418,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRestaurantMenuItems(prev => prev.map(i => i.id === itemId ? { ...i, is_available: newAvailability } : i));
   };
 
+  // === FAVORITES ===
+  const loadFavorites = async () => {
+    if (!user?.id) return;
+    setLoadingFavorites(true);
+    const { data } = await fetchFavorites(user.id);
+    setFavoriteIds(data.map(f => f.restaurant_id));
+    setLoadingFavorites(false);
+  };
+
+  const isFavorite = (restaurantId: string): boolean => favoriteIds.includes(restaurantId);
+
+  const toggleFavorite = async (restaurantId: string) => {
+    if (!user?.id) return;
+    if (isFavorite(restaurantId)) {
+      setFavoriteIds(prev => prev.filter(id => id !== restaurantId));
+      await removeFavoriteDb(user.id, restaurantId);
+    } else {
+      setFavoriteIds(prev => [restaurantId, ...prev]);
+      await addFavoriteDb(user.id, restaurantId);
+    }
+  };
+
+  const favoriteRestaurants = React.useMemo(
+    () => restaurants.filter(r => favoriteIds.includes(r.id)),
+    [restaurants, favoriteIds]
+  );
+
   const requestLocation = async () => {
     try {
       const { status } = await Location.getForegroundPermissionsAsync();
@@ -438,6 +476,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateProfile,
       userLocation, requestLocation,
       pushToken,
+      favoriteIds, isFavorite, toggleFavorite, favoriteRestaurants, loadingFavorites,
     }}>
       {children}
     </AppContext.Provider>

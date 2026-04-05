@@ -99,6 +99,44 @@ export interface DbReview {
   customer_name?: string;
 }
 
+export interface DbFavorite {
+  id: string;
+  customer_id: string;
+  restaurant_id: string;
+  created_at: string;
+}
+
+// ---- Favorites ----
+
+export async function fetchFavorites(customerId: string): Promise<{ data: DbFavorite[]; error: string | null }> {
+  const { data, error } = await supabase
+    .from('favorites')
+    .select('*')
+    .eq('customer_id', customerId)
+    .order('created_at', { ascending: false });
+  if (error) return { data: [], error: error.message };
+  return { data: data || [], error: null };
+}
+
+export async function addFavorite(customerId: string, restaurantId: string): Promise<{ data: DbFavorite | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('favorites')
+    .insert({ customer_id: customerId, restaurant_id: restaurantId })
+    .select()
+    .single();
+  if (error) return { data: null, error: error.message };
+  return { data, error: null };
+}
+
+export async function removeFavorite(customerId: string, restaurantId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('favorites')
+    .delete()
+    .eq('customer_id', customerId)
+    .eq('restaurant_id', restaurantId);
+  return { error: error?.message || null };
+}
+
 // ---- Restaurants ----
 
 export async function fetchRestaurants(): Promise<{ data: DbRestaurant[]; error: string | null }> {
