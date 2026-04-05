@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal, Platform, TextInput, Share, Linking } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,7 +10,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
-import { DbMenuItem, DbRestaurant, DbReview, fetchRestaurantById, fetchMenuItems, fetchRestaurantReviews } from '../../services/supabaseData';
+import { DbMenuItem, DbRestaurant, DbReview, fetchRestaurantById, fetchMenuItems, fetchRestaurantReviews, fetchUserProfile } from '../../services/supabaseData';
 import { getCuisineColor, parseCuisines } from '../../constants/config';
 import { useRestaurantHours } from '../../hooks/useRestaurantHours';
 import { scheduleRestaurantReminder, cancelRestaurantReminder } from '../../services/notificationScheduler';
@@ -31,12 +31,15 @@ export default function RestaurantDetailScreen() {
   const [scheduledDate, setScheduledDate] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [ownerPhone, setOwnerPhone] = useState<string | null>(null);
+  const [menuSearch, setMenuSearch] = useState('');
   const visitedRef = useRef(false);
 
   const { isCurrentlyOpen, closingSoon, closingSoonLabel, formattedHours, hours } = useRestaurantHours(
     (restaurant as any)?.operating_hours
   );
 
+  // Build categories from menu items
   const categories = useMemo(() => {
     const cats: { id: string; name: string; items: DbMenuItem[] }[] = [];
     const catMap = new Map<string, DbMenuItem[]>();
@@ -47,6 +50,11 @@ export default function RestaurantDetailScreen() {
     });
     const popularItems = menuItems.filter(i => i.is_popular);
     if (popularItems.length > 0) cats.push({ id: 'popular', name: 'Popular', items: popularItems });
+
+    // Add BOGO category if any BOGO items exist
+    const bogoItems = menuItems.filter(i => (i as any).is_bogo);
+    if (bogoItems.length > 0) cats.push({ id: 'bogo', name: 'BOGO Deals', items: bogoItems });
+
     catMap.forEach((items, key) => {
       cats.push({ id: key, name: key.charAt(0).toUpperCase() + key.slice(1), items });
     });
@@ -69,6 +77,13 @@ export default function RestaurantDetailScreen() {
       setMenuItems(menuResult.data);
       setReviews(reviewsResult.data);
       setLoading(false);
+
+      // Fetch restaurant owner phone number
+      if (restResult.data?.owner_id) {
+        fetchUserProfile(restResult.data.owner_id).then(({ data: profile }) => {
+          if (profile?.phone) setOwnerPhone(profile.phone);
+        });
+      }
     });
   }, [id]);
 
@@ -86,10 +101,21 @@ export default function RestaurantDetailScreen() {
     }
   }, [categories]);
 
+  // Filter active items by category AND menu search
   const activeItems = useMemo(() => {
     const cat = categories.find(c => c.id === activeCategory);
-    return cat?.items || [];
-  }, [categories, activeCategory]);
+    let items = cat?.items || [];
+    if (menuSearch.trim()) {
+      const q = menuSearch.toLowerCase();
+      // When searching, search across ALL menu items
+      items = menuItems.filter(i =>
+        i.name.toLowerCase().includes(q) ||
+        (i.description && i.description.toLowerCase().includes(q)) ||
+        i.category.toLowerCase().includes(q)
+      );
+    }
+    return items;
+  }, [categories, activeCategory, menuItems, menuSearch]);
 
   const distanceKm = useMemo(() => {
     if (!userLocation || !restaurant) return null;
@@ -137,6 +163,23 @@ export default function RestaurantDetailScreen() {
 
   const canOrder = isCurrentlyOpen;
 
+  // Count BOGO items for banner
+  const bogoCount = useMemo(() => menuItems.filter(i => (i as any).is_bogo).length, [menuItems]);
+
+  // Share restaurant
+  const handleShare = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const message = `Check out ${restaurant?.name} on SwiftChop! Great ${restaurant?.cuisine} food.\n\nOrder now: swiftchop://restaurant/${id}`;
+      await Share.share({
+        message,
+        title: `${restaurant?.name} on SwiftChop`,
+      });
+    } catch (err) {
+      console.log('Share error:', err);
+    }
+  };
+
   // Get next available open time for scheduling
   const getNextOpenSlot = useMemo(() => {
     const now = new Date();
@@ -151,13 +194,11 @@ export default function RestaurantDetailScreen() {
         const slot = new Date(checkDate);
         slot.setHours(openH, openM, 0, 0);
         if (slot > now) return slot;
-        // If today and currently past open time, check if still before close
         if (dayOffset === 0) {
           const [closeH, closeM] = dayHrs.close.split(':').map(Number);
           const closeTime = new Date(checkDate);
           closeTime.setHours(closeH, closeM, 0, 0);
           if (now < closeTime) {
-            // Still open, bump to next hour
             const nextSlot = new Date(now);
             nextSlot.setHours(now.getHours() + 1, 0, 0, 0);
             return nextSlot;
@@ -165,7 +206,7 @@ export default function RestaurantDetailScreen() {
         }
       }
     }
-    return new Date(now.getTime() + 24 * 60 * 60 * 1000); // Fallback: tomorrow
+    return new Date(now.getTime() + 24 * 60 * 60 * 1000);
   }, [hours]);
 
   const handleScheduleOrder = () => {
@@ -204,6 +245,9 @@ export default function RestaurantDetailScreen() {
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Pressable onPress={() => { Haptics.selectionAsync(); setShowInfo(true); }} style={styles.backBtn}>
                 <MaterialIcons name="info-outline" size={22} color="#FFF" />
+              </Pressable>
+              <Pressable onPress={handleShare} style={styles.backBtn}>
+                <MaterialIcons name="share" size={22} color="#FFF" />
               </Pressable>
               <Pressable
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); toggleFavorite(id!); }}
@@ -298,6 +342,26 @@ export default function RestaurantDetailScreen() {
 
         <Text style={styles.description}>{restaurant.description}</Text>
 
+        {/* BOGO Banner */}
+        {bogoCount > 0 ? (
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveCategory('bogo');
+            }}
+            style={styles.bogoBanner}
+          >
+            <View style={styles.bogoIconWrap}>
+              <MaterialIcons name="local-offer" size={22} color="#FFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bogoBannerTitle}>Buy One Get One FREE</Text>
+              <Text style={styles.bogoBannerSub}>{bogoCount} item{bogoCount !== 1 ? 's' : ''} with BOGO offer</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={20} color="#FFF" />
+          </Pressable>
+        ) : null}
+
         {/* Reviews Section */}
         {showReviews ? (
           <View style={styles.reviewsSection}>
@@ -374,31 +438,71 @@ export default function RestaurantDetailScreen() {
           </Pressable>
         )}
 
-        {categories.length > 0 ? (
+        {/* Menu search bar */}
+        <View style={styles.menuSearchBar}>
+          <MaterialIcons name="search" size={20} color={theme.textMuted} />
+          <TextInput
+            style={styles.menuSearchInput}
+            value={menuSearch}
+            onChangeText={setMenuSearch}
+            placeholder="Search menu items..."
+            placeholderTextColor={theme.textMuted}
+          />
+          {menuSearch.length > 0 ? (
+            <Pressable onPress={() => setMenuSearch('')}>
+              <MaterialIcons name="close" size={18} color={theme.textMuted} />
+            </Pressable>
+          ) : null}
+        </View>
+
+        {/* Category tabs - hide when searching */}
+        {!menuSearch.trim() && categories.length > 0 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRow}>
             {categories.map((cat) => (
               <Pressable key={cat.id} onPress={() => { Haptics.selectionAsync(); setActiveCategory(cat.id); }} style={[styles.tab, activeCategory === cat.id && styles.tabActive]}>
+                {cat.id === 'bogo' ? <MaterialIcons name="local-offer" size={14} color={activeCategory === cat.id ? '#FFF' : '#E65100'} style={{ marginRight: 4 }} /> : null}
                 <Text style={[styles.tabText, activeCategory === cat.id && styles.tabTextActive]}>{cat.name}</Text>
               </Pressable>
             ))}
           </ScrollView>
         ) : null}
 
+        {/* Search results label */}
+        {menuSearch.trim() ? (
+          <View style={styles.searchResultsLabel}>
+            <Text style={styles.searchResultsText}>
+              {activeItems.length} result{activeItems.length !== 1 ? 's' : ''} for "{menuSearch}"
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.menuList}>
           {activeItems.map((item) => {
             const inCart = cart.find(ci => ci.menuItem.id === item.id);
+            const isBogo = (item as any).is_bogo;
             return (
               <View key={item.id} style={[styles.menuItem, (!item.is_available || !canOrder) && { opacity: 0.5 }]}>
                 <View style={{ flex: 1, paddingRight: 12 }}>
-                  {item.is_popular ? (
-                    <View style={styles.popularBadge}>
-                      <MaterialIcons name="local-fire-department" size={12} color={theme.primary} />
-                      <Text style={styles.popularText}>Popular</Text>
-                    </View>
-                  ) : null}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+                    {item.is_popular ? (
+                      <View style={styles.popularBadge}>
+                        <MaterialIcons name="local-fire-department" size={12} color={theme.primary} />
+                        <Text style={styles.popularText}>Popular</Text>
+                      </View>
+                    ) : null}
+                    {isBogo ? (
+                      <View style={styles.bogoItemBadge}>
+                        <MaterialIcons name="local-offer" size={11} color="#FFF" />
+                        <Text style={styles.bogoItemText}>BOGO</Text>
+                      </View>
+                    ) : null}
+                  </View>
                   <Text style={styles.menuItemName}>{item.name}</Text>
                   <Text style={styles.menuItemDesc} numberOfLines={2}>{item.description}</Text>
-                  <Text style={styles.menuItemPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                    <Text style={styles.menuItemPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
+                    {isBogo ? <Text style={styles.bogoFreeLabel}>+ 1 FREE</Text> : null}
+                  </View>
                 </View>
                 <View>
                   <Image source={getItemImage(item.image_key)} style={styles.menuItemImage} contentFit="cover" />
@@ -413,6 +517,13 @@ export default function RestaurantDetailScreen() {
               </View>
             );
           })}
+          {activeItems.length === 0 ? (
+            <View style={styles.emptyMenu}>
+              <MaterialIcons name={menuSearch.trim() ? 'search-off' : 'restaurant-menu'} size={40} color={theme.textMuted} />
+              <Text style={styles.emptyMenuTitle}>{menuSearch.trim() ? 'No items found' : 'No items in this category'}</Text>
+              <Text style={styles.emptyMenuSub}>{menuSearch.trim() ? `Try a different search term` : 'Check out other categories'}</Text>
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -456,6 +567,24 @@ export default function RestaurantDetailScreen() {
                   </View>
                 </View>
               ) : null}
+
+              {/* Phone Number */}
+              {ownerPhone ? (
+                <View style={styles.infoSection}>
+                  <Text style={styles.infoSectionTitle}>Contact</Text>
+                  <Pressable
+                    onPress={() => Linking.openURL(`tel:${ownerPhone}`)}
+                    style={styles.phoneRow}
+                  >
+                    <View style={styles.phoneIconWrap}>
+                      <MaterialIcons name="phone" size={18} color={theme.primary} />
+                    </View>
+                    <Text style={styles.phoneText}>{ownerPhone}</Text>
+                    <MaterialIcons name="call" size={18} color={theme.primary} />
+                  </Pressable>
+                </View>
+              ) : null}
+
               <View style={styles.infoSection}>
                 <Text style={styles.infoSectionTitle}>Opening Hours</Text>
                 <View style={styles.hoursGrid}>
@@ -505,7 +634,6 @@ export default function RestaurantDetailScreen() {
                 Choose when you would like your order prepared. The restaurant will start making your food at the scheduled time.
               </Text>
 
-              {/* Date selector */}
               <Pressable onPress={() => setShowDatePicker(true)} style={styles.schedulePickerBtn}>
                 <MaterialIcons name="calendar-today" size={20} color={theme.primary} />
                 <View style={{ flex: 1 }}>
@@ -517,7 +645,6 @@ export default function RestaurantDetailScreen() {
                 <MaterialIcons name="edit" size={18} color={theme.textMuted} />
               </Pressable>
 
-              {/* Time selector */}
               <Pressable onPress={() => setShowTimePicker(true)} style={styles.schedulePickerBtn}>
                 <MaterialIcons name="access-time" size={20} color={theme.primary} />
                 <View style={{ flex: 1 }}>
@@ -598,7 +725,6 @@ const styles = StyleSheet.create({
   closingSoonText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
   closedBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#DC2626', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, alignSelf: 'flex-start', marginBottom: 8 },
   closedBadgeText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
-  // Schedule banner
   scheduleBanner: { flexDirection: 'row', alignItems: 'center', gap: 14, marginHorizontal: 16, marginTop: 12, padding: 16, borderRadius: 16, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted },
   scheduleIconWrap: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
   scheduleBannerTitle: { fontSize: 15, fontWeight: '700', color: theme.textPrimary, marginBottom: 3 },
@@ -612,6 +738,12 @@ const styles = StyleSheet.create({
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, marginBottom: 8 },
   locationText: { fontSize: 13, color: theme.textSecondary },
   description: { fontSize: 14, color: theme.textSecondary, lineHeight: 20, paddingHorizontal: 16, marginBottom: 12 },
+
+  // BOGO Banner
+  bogoBanner: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 12, padding: 14, borderRadius: 14, backgroundColor: '#E65100' },
+  bogoIconWrap: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  bogoBannerTitle: { fontSize: 15, fontWeight: '700', color: '#FFF' },
+  bogoBannerSub: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
 
   showReviewsBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginHorizontal: 16, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.primaryFaint, marginBottom: 16 },
   showReviewsBtnText: { fontSize: 14, fontWeight: '600', color: theme.primary },
@@ -642,24 +774,36 @@ const styles = StyleSheet.create({
   noReviews: { alignItems: 'center', paddingVertical: 24 },
   noReviewsText: { fontSize: 14, color: theme.textMuted, marginTop: 8 },
 
+  // Menu search
+  menuSearchBar: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, height: 46, borderRadius: 12, backgroundColor: theme.backgroundSecondary, paddingHorizontal: 14, gap: 10, marginBottom: 12, borderWidth: 1, borderColor: theme.border },
+  menuSearchInput: { flex: 1, fontSize: 15, color: theme.textPrimary },
+  searchResultsLabel: { paddingHorizontal: 16, marginBottom: 8 },
+  searchResultsText: { fontSize: 13, color: theme.textSecondary, fontWeight: '500' },
+
   tabsRow: { paddingHorizontal: 16, gap: 8, marginBottom: 8 },
-  tab: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 24, backgroundColor: theme.backgroundSecondary },
+  tab: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 24, backgroundColor: theme.backgroundSecondary },
   tabActive: { backgroundColor: theme.primary },
   tabText: { fontSize: 14, fontWeight: '600', color: theme.textSecondary },
   tabTextActive: { color: '#FFF' },
   menuList: { paddingHorizontal: 16 },
   menuItem: { flexDirection: 'row', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.borderLight },
-  popularBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
+  popularBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   popularText: { fontSize: 12, fontWeight: '600', color: theme.primary },
+  bogoItemBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#E65100', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  bogoItemText: { fontSize: 10, fontWeight: '800', color: '#FFF' },
+  bogoFreeLabel: { fontSize: 11, fontWeight: '800', color: '#059669', backgroundColor: '#D1FAE5', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   menuItemName: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
   menuItemDesc: { fontSize: 13, color: theme.textSecondary, marginTop: 4, lineHeight: 18 },
-  menuItemPrice: { fontSize: 16, fontWeight: '700', color: theme.primary, marginTop: 8 },
+  menuItemPrice: { fontSize: 16, fontWeight: '700', color: theme.primary },
   menuItemImage: { width: 100, height: 100, borderRadius: 14 },
   addBtnStyle: { position: 'absolute', bottom: -6, right: -6, width: 36, height: 36, borderRadius: 18, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center', ...theme.shadow.medium },
   addBtnActive: { backgroundColor: theme.backgroundDark },
   addBtnTextActive: { fontSize: 14, fontWeight: '700', color: '#FFF' },
   unavailableBadge: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.6)', paddingVertical: 4, borderBottomLeftRadius: 14, borderBottomRightRadius: 14, alignItems: 'center' },
   unavailableText: { fontSize: 10, fontWeight: '600', color: '#FFF' },
+  emptyMenu: { alignItems: 'center', paddingVertical: 40 },
+  emptyMenuTitle: { fontSize: 15, fontWeight: '600', color: theme.textPrimary, marginTop: 10 },
+  emptyMenuSub: { fontSize: 13, color: theme.textMuted, marginTop: 4 },
   cartBar: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingTop: 12, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: theme.border },
   cartBarInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.backgroundDark, borderRadius: 16, paddingHorizontal: 18, paddingVertical: 16 },
   cartBarLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -677,6 +821,9 @@ const styles = StyleSheet.create({
   infoSection: { paddingHorizontal: 20, marginBottom: 20 },
   infoSectionTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary, marginBottom: 10 },
   infoDescriptionText: { fontSize: 15, color: theme.textSecondary, lineHeight: 22 },
+  phoneRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 12, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted },
+  phoneIconWrap: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
+  phoneText: { flex: 1, fontSize: 16, fontWeight: '600', color: theme.textPrimary },
   hoursGrid: { gap: 2 },
   hoursRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8 },
   hoursRowToday: { backgroundColor: theme.primaryFaint },
