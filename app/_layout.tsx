@@ -34,7 +34,10 @@ function RootNavigator() {
     }
 
     if (isAuthenticated && isAuthScreen) {
-      if (!userProfile) return;
+      if (!userProfile) {
+        // Profile still loading - wait for it
+        return;
+      }
 
       if (userProfile.role === 'restaurant') {
         router.replace(userProfile.is_approved ? '/(restaurant)' : '/pending-approval');

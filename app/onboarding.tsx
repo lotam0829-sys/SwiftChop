@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Pressable, FlatList, TextInput,
-  KeyboardAvoidingView, Platform, ScrollView, Dimensions, Linking,
+  KeyboardAvoidingView, Platform, ScrollView, Dimensions, Linking, ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -14,7 +14,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import { theme } from '../constants/theme';
 import { useAuth, useAlert } from '@/template';
 import { useApp } from '../contexts/AppContext';
-import { updateUserProfile, createRestaurantForOwner } from '../services/supabaseData';
+import { updateUserProfile, createRestaurantForOwner, verifyBankAccount } from '../services/supabaseData';
+import { nigerianBanks, NigerianBank } from '../constants/nigerianBanks';
 import { getSupabaseClient } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
 
@@ -98,8 +99,13 @@ export default function OnboardingScreen() {
 
   // Bank details state
   const [bankName, setBankName] = useState('');
+  const [selectedBankCode, setSelectedBankCode] = useState('');
   const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [bankAccountName, setBankAccountName] = useState('');
+  const [verifyingBank, setVerifyingBank] = useState(false);
+  const [bankVerified, setBankVerified] = useState(false);
+  const [showBankPicker, setShowBankPicker] = useState(false);
+  const [bankSearch, setBankSearch] = useState('');
 
   // Commission agreement
   const [commissionAgreed, setCommissionAgreed] = useState(false);
@@ -212,18 +218,52 @@ export default function OnboardingScreen() {
     setPhase('bank_details');
   };
 
+  // Auto-verify bank when account number is 10 digits and bank is selected
+  useEffect(() => {
+    if (bankAccountNumber.length === 10 && selectedBankCode) {
+      handleVerifyBank();
+    } else {
+      setBankVerified(false);
+      setBankAccountName('');
+    }
+  }, [bankAccountNumber, selectedBankCode]);
+
+  const handleVerifyBank = async () => {
+    if (!selectedBankCode || bankAccountNumber.length !== 10) return;
+    setVerifyingBank(true);
+    setBankAccountName('');
+    setBankVerified(false);
+    const { data, error } = await verifyBankAccount(bankAccountNumber, selectedBankCode);
+    setVerifyingBank(false);
+    if (error) {
+      showAlert('Verification Failed', error);
+      return;
+    }
+    if (data?.account_name) {
+      setBankAccountName(data.account_name);
+      setBankVerified(true);
+    }
+  };
+
+  const handleSelectBank = (bank: NigerianBank) => {
+    setBankName(bank.name);
+    setSelectedBankCode(bank.code);
+    setShowBankPicker(false);
+    setBankSearch('');
+  };
+
   // Restaurant: bank details -> commission agreement
   const handleBankDetailsNext = () => {
+    if (!selectedBankCode) {
+      showAlert('Required', 'Please select your bank');
+      return;
+    }
     if (!bankAccountNumber.trim() || bankAccountNumber.trim().length < 10) {
       showAlert('Required', 'Please enter a valid 10-digit bank account number');
       return;
     }
-    if (!bankName.trim()) {
-      showAlert('Required', 'Please enter your bank name');
-      return;
-    }
     if (!bankAccountName.trim()) {
-      showAlert('Required', 'Please enter the name on your bank account');
+      showAlert('Required', 'Account name could not be verified. Please check your details.');
       return;
     }
     setPhase('commission_agreement');
@@ -632,35 +672,85 @@ export default function OnboardingScreen() {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Bank Name *</Text>
-              <View style={styles.inputWrap}>
-                <MaterialIcons name="account-balance" size={20} color={theme.textMuted} style={styles.inputIcon} />
-                <TextInput style={styles.input} placeholder="e.g. GTBank, First Bank, Access Bank" placeholderTextColor={theme.textMuted} value={bankName} onChangeText={setBankName} />
-              </View>
+              <Text style={styles.inputLabel}>Select Bank *</Text>
+              <Pressable onPress={() => setShowBankPicker(!showBankPicker)} style={[styles.inputWrap, { justifyContent: 'space-between' }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <MaterialIcons name="account-balance" size={20} color={theme.textMuted} style={styles.inputIcon} />
+                  <Text style={[styles.input, { paddingVertical: 0 }, !bankName && { color: theme.textMuted }]}>
+                    {bankName || 'Select your bank'}
+                  </Text>
+                </View>
+                <MaterialIcons name={showBankPicker ? 'expand-less' : 'expand-more'} size={24} color={theme.textMuted} />
+              </Pressable>
             </View>
+
+            {showBankPicker ? (
+              <View style={styles.bankPickerWrap}>
+                <View style={[styles.inputWrap, { marginBottom: 8, height: 44 }]}>
+                  <MaterialIcons name="search" size={18} color={theme.textMuted} style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={[styles.input, { fontSize: 14 }]}
+                    placeholder="Search banks..."
+                    placeholderTextColor={theme.textMuted}
+                    value={bankSearch}
+                    onChangeText={setBankSearch}
+                    autoFocus
+                  />
+                </View>
+                <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                  {nigerianBanks
+                    .filter(b => !bankSearch || b.name.toLowerCase().includes(bankSearch.toLowerCase()))
+                    .map(bank => (
+                      <Pressable
+                        key={bank.code}
+                        onPress={() => handleSelectBank(bank)}
+                        style={[styles.bankPickerItem, selectedBankCode === bank.code && styles.bankPickerItemActive]}
+                      >
+                        <Text style={[styles.bankPickerItemText, selectedBankCode === bank.code && { color: theme.primary, fontWeight: '700' }]}>
+                          {bank.name}
+                        </Text>
+                        {selectedBankCode === bank.code ? <MaterialIcons name="check-circle" size={18} color={theme.primary} /> : null}
+                      </Pressable>
+                    ))}
+                </ScrollView>
+              </View>
+            ) : null}
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Account Number *</Text>
               <View style={styles.inputWrap}>
                 <MaterialIcons name="pin" size={20} color={theme.textMuted} style={styles.inputIcon} />
                 <TextInput style={styles.input} placeholder="0123456789" placeholderTextColor={theme.textMuted} value={bankAccountNumber} onChangeText={(t) => setBankAccountNumber(t.replace(/\D/g, '').slice(0, 10))} keyboardType="number-pad" maxLength={10} />
+                {verifyingBank ? (
+                  <ActivityIndicator size="small" color={theme.primary} />
+                ) : bankVerified ? (
+                  <MaterialIcons name="check-circle" size={20} color={theme.success} />
+                ) : null}
               </View>
               <Text style={styles.inputHint}>Nigerian bank accounts are 10 digits</Text>
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Account Name *</Text>
-              <View style={styles.inputWrap}>
-                <MaterialIcons name="badge" size={20} color={theme.textMuted} style={styles.inputIcon} />
-                <TextInput style={styles.input} placeholder="Name as it appears on your bank account" placeholderTextColor={theme.textMuted} value={bankAccountName} onChangeText={setBankAccountName} autoCapitalize="words" />
+              <Text style={styles.inputLabel}>Account Name {bankVerified ? '(Verified)' : '*'}</Text>
+              <View style={[styles.inputWrap, bankVerified && { borderColor: theme.success, backgroundColor: '#F0FDF4' }]}>
+                <MaterialIcons name="badge" size={20} color={bankVerified ? theme.success : theme.textMuted} style={styles.inputIcon} />
+                <Text style={[styles.input, { paddingVertical: 0 }, !bankAccountName && { color: theme.textMuted }]}>
+                  {verifyingBank ? 'Verifying...' : bankAccountName || 'Auto-filled after verification'}
+                </Text>
               </View>
+              {bankVerified ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                  <MaterialIcons name="verified" size={14} color={theme.success} />
+                  <Text style={{ fontSize: 12, color: theme.success, fontWeight: '500' }}>Verified by Paystack</Text>
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.bankInfoCard}>
               <MaterialIcons name="info-outline" size={18} color={theme.info} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.bankInfoTitle}>Why we need this</Text>
-                <Text style={styles.bankInfoText}>Your earnings from customer orders will be settled to this account weekly. You can update it later in Settings.</Text>
+                <Text style={styles.bankInfoText}>Your earnings from customer orders will be settled to this account. We verify your details through Paystack to ensure payments go to the right account.</Text>
               </View>
             </View>
 
@@ -1005,4 +1095,8 @@ const styles = StyleSheet.create({
   certReqTitle: { fontSize: 14, fontWeight: '600', color: theme.textPrimary, marginBottom: 10 },
   certReqRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   certReqText: { fontSize: 14, color: theme.textSecondary },
+  bankPickerWrap: { marginBottom: 16, backgroundColor: theme.backgroundSecondary, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: theme.border },
+  bankPickerItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10 },
+  bankPickerItemActive: { backgroundColor: theme.primaryFaint },
+  bankPickerItemText: { fontSize: 14, color: theme.textPrimary },
 });

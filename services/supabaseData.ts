@@ -370,6 +370,68 @@ export async function updateRestaurant(id: string, updates: Partial<DbRestaurant
   return { error: error?.message || null };
 }
 
+// ---- Paystack ----
+
+export async function verifyBankAccount(accountNumber: string, bankCode: string): Promise<{ data: { account_name: string } | null; error: string | null }> {
+  const { data, error } = await supabase.functions.invoke('paystack-verify-bank', {
+    body: { account_number: accountNumber, bank_code: bankCode },
+  });
+  if (error) {
+    let errorMessage = error.message;
+    if (error instanceof FunctionsHttpError) {
+      try {
+        const textContent = await error.context?.text();
+        const parsed = JSON.parse(textContent || '{}');
+        errorMessage = parsed.error || textContent || error.message;
+      } catch {
+        errorMessage = error.message || 'Verification failed';
+      }
+    }
+    return { data: null, error: errorMessage };
+  }
+  return { data, error: null };
+}
+
+export async function createPaystackSubaccount(userId: string, businessName: string, bankCode: string, accountNumber: string): Promise<{ data: { subaccount_code: string } | null; error: string | null }> {
+  const { data, error } = await supabase.functions.invoke('paystack-create-subaccount', {
+    body: { user_id: userId, business_name: businessName, bank_code: bankCode, account_number: accountNumber, percentage_charge: 0 },
+  });
+  if (error) {
+    let errorMessage = error.message;
+    if (error instanceof FunctionsHttpError) {
+      try {
+        const textContent = await error.context?.text();
+        const parsed = JSON.parse(textContent || '{}');
+        errorMessage = parsed.error || textContent || error.message;
+      } catch {
+        errorMessage = error.message || 'Subaccount creation failed';
+      }
+    }
+    return { data: null, error: errorMessage };
+  }
+  return { data, error: null };
+}
+
+export async function initializePaystackPayment(email: string, amount: number, orderId: string, subaccount?: string | null, metadata?: Record<string, any>): Promise<{ data: { authorization_url: string; access_code: string; reference: string } | null; error: string | null }> {
+  const { data, error } = await supabase.functions.invoke('paystack-initialize', {
+    body: { email, amount, order_id: orderId, subaccount: subaccount || undefined, metadata },
+  });
+  if (error) {
+    let errorMessage = error.message;
+    if (error instanceof FunctionsHttpError) {
+      try {
+        const textContent = await error.context?.text();
+        const parsed = JSON.parse(textContent || '{}');
+        errorMessage = parsed.error || textContent || error.message;
+      } catch {
+        errorMessage = error.message || 'Payment initialization failed';
+      }
+    }
+    return { data: null, error: errorMessage };
+  }
+  return { data, error: null };
+}
+
 // ---- Reviews ----
 
 export async function fetchRestaurantReviews(restaurantId: string): Promise<{ data: DbReview[]; error: string | null }> {
