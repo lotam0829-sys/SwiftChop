@@ -33,10 +33,10 @@ export default function PaymentMethodsScreen() {
           <MaterialIcons name="credit-card" size={36} color={theme.textMuted} />
         </View>
         <Text style={styles.emptyTitle}>No cards saved yet</Text>
-        <Text style={styles.emptySubtitle}>Your payment cards will appear here once you complete your first order or add one during checkout.</Text>
+        <Text style={styles.emptySubtitle}>Your payment cards will appear here once Stripe is integrated.</Text>
       </View>
 
-      <Pressable onPress={() => { Haptics.selectionAsync(); showAlert('Coming Soon', 'Stripe payment integration will be available shortly. You can add cards during checkout.'); }} style={styles.addBtn}>
+      <Pressable onPress={() => { Haptics.selectionAsync(); showAlert('Coming Soon', 'Stripe payment integration will be available shortly.'); }} style={styles.addBtn}>
         <MaterialIcons name="add-circle-outline" size={22} color={theme.primary} />
         <Text style={styles.addBtnText}>Add New Card</Text>
       </Pressable>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Linking } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -17,7 +18,14 @@ const faqs = [
 
 export default function HelpSupportScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [expanded, setExpanded] = useState<number | null>(null);
+
+  const legalItems = [
+    { label: 'Terms of Service', route: '/customer-terms' as const },
+    { label: 'Privacy Policy', route: '/customer-privacy' as const },
+    { label: 'Cookie Policy', route: '/customer-cookies' as const },
+  ];
 
   return (
     <ScrollView
@@ -58,10 +66,10 @@ export default function HelpSupportScreen() {
 
       <View style={{ height: 24 }} />
       <Text style={styles.sectionTitle}>Legal</Text>
-      {['Terms of Service', 'Privacy Policy', 'Cookie Policy'].map((item, idx) => (
-        <Pressable key={idx} style={styles.legalRow} onPress={() => Haptics.selectionAsync()}>
+      {legalItems.map((item, idx) => (
+        <Pressable key={idx} style={styles.legalRow} onPress={() => { Haptics.selectionAsync(); router.push(item.route); }}>
           <MaterialIcons name="description" size={20} color={theme.textMuted} />
-          <Text style={styles.legalLabel}>{item}</Text>
+          <Text style={styles.legalLabel}>{item.label}</Text>
           <MaterialIcons name="chevron-right" size={20} color={theme.textMuted} />
         </Pressable>
       ))}
