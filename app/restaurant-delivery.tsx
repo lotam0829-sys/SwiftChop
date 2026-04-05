@@ -21,7 +21,7 @@ export default function RestaurantDeliveryScreen() {
             <Text style={styles.feeCardTitle}>Delivery Fee Pricing</Text>
           </View>
           <Text style={styles.feeCardText}>
-            Delivery fees are automatically calculated based on distance between your restaurant and the customer using Shipday.
+            Delivery fees are automatically calculated based on the distance between your restaurant and the customer using our smart routing system.
           </Text>
           <View style={styles.formulaRow}>
             <View style={styles.formulaItem}>
@@ -47,7 +47,7 @@ export default function RestaurantDeliveryScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.infoTitle}>Delivery Time</Text>
             <Text style={styles.infoText}>
-              Delivery time is calculated dynamically for each customer based on their distance from your restaurant. There is no fixed delivery time to set — customers see an accurate estimate based on real-time location data.
+              Delivery time is calculated dynamically for each customer based on their distance from your restaurant. Customers see an accurate estimate powered by our AI-based routing engine.
             </Text>
           </View>
         </View>
@@ -58,7 +58,7 @@ export default function RestaurantDeliveryScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.coverageTitle}>Delivery Coverage</Text>
             <Text style={styles.coverageText}>
-              Delivery availability is determined automatically by Shipday based on your restaurant location and available riders. No manual radius setup is needed.
+              Delivery availability is determined automatically based on your restaurant location and available riders in the network. No manual radius setup is needed.
             </Text>
           </View>
         </View>
@@ -77,7 +77,7 @@ export default function RestaurantDeliveryScreen() {
             <View style={styles.stepDot}><Text style={styles.stepNum}>2</Text></View>
             <View style={{ flex: 1 }}>
               <Text style={styles.stepTitle}>Distance is calculated</Text>
-              <Text style={styles.stepDesc}>Between your restaurant and the customer using coordinates</Text>
+              <Text style={styles.stepDesc}>Our backend computes the optimal route between your restaurant and the customer</Text>
             </View>
           </View>
           <View style={styles.step}>
@@ -90,7 +90,7 @@ export default function RestaurantDeliveryScreen() {
           <View style={styles.step}>
             <View style={styles.stepDot}><Text style={styles.stepNum}>4</Text></View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.stepTitle}>Rider assigned via Shipday</Text>
+              <Text style={styles.stepTitle}>Rider assigned automatically</Text>
               <Text style={styles.stepDesc}>An available rider is dispatched and tracked in real-time</Text>
             </View>
           </View>

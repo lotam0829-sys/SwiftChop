@@ -43,9 +43,9 @@ export default function RestaurantProfileScreen() {
     {
       title: 'SUPPORT',
       items: [
-        { icon: 'help', label: 'Help Centre', sub: 'FAQ and guides', route: '/restaurant-support' },
-        { icon: 'chat', label: 'Contact Support', sub: 'Chat with our team', route: '/restaurant-support' },
-        { icon: 'description', label: 'Terms & Policies', sub: 'Legal information', route: '/restaurant-support' },
+        { icon: 'help', label: 'Help Centre', sub: 'FAQ and guides', route: '/restaurant-help' },
+        { icon: 'chat', label: 'Contact Support', sub: 'Chat with our team', route: '/restaurant-contact' },
+        { icon: 'description', label: 'Terms & Policies', sub: 'Legal information', route: '/restaurant-terms' },
       ],
     },
   ];

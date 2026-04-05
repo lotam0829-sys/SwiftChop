@@ -75,6 +75,9 @@ function RootNavigator() {
         <Stack.Screen name="pending-approval" />
         <Stack.Screen name="restaurant-account" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
         <Stack.Screen name="restaurant-support" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-contact" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-help" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-terms" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
         <Stack.Screen name="restaurant-hours" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
         <Stack.Screen name="restaurant-delivery" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
         <Stack.Screen name="restaurant-photos" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />

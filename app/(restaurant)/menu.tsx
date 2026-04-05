@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,6 +17,8 @@ import PrimaryButton from '../../components/ui/PrimaryButton';
 import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
 
+const DEFAULT_CATEGORIES = ['nigerian', 'rice', 'grilled', 'soups', 'snacks', 'drinks'];
+
 export default function RestaurantMenuScreen() {
   const insets = useSafeAreaInsets();
   const { restaurantMenuItems, addMenuItem, deleteMenuItemAction, toggleMenuItemAvailability, ownerRestaurant, refreshRestaurantData } = useApp();
@@ -24,6 +26,7 @@ export default function RestaurantMenuScreen() {
   const { showAlert } = useAlert();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [editingItem, setEditingItem] = useState<DbMenuItem | null>(null);
   const [search, setSearch] = useState('');
   const [addLoading, setAddLoading] = useState(false);
@@ -32,12 +35,31 @@ export default function RestaurantMenuScreen() {
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newPrice, setNewPrice] = useState('');
-  const [newCategory, setNewCategory] = useState('nigerian');
+  const [newCategory, setNewCategory] = useState('');
   const [newPopular, setNewPopular] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
-  const categories = ['nigerian', 'rice', 'grilled', 'soups', 'snacks', 'drinks'];
+  // Custom categories
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
+  const [newCatName, setNewCatName] = useState('');
+
+  // Load custom categories from restaurant
+  useEffect(() => {
+    if (ownerRestaurant) {
+      const custom = (ownerRestaurant as any).custom_categories;
+      if (custom && Array.isArray(custom) && custom.length > 0) {
+        setCategories(custom);
+      }
+    }
+  }, [ownerRestaurant]);
+
+  // Also include categories from existing menu items
+  const allCategories = useMemo(() => {
+    const fromItems = restaurantMenuItems.map(i => i.category).filter(Boolean);
+    const merged = [...new Set([...categories, ...fromItems])];
+    return merged;
+  }, [categories, restaurantMenuItems]);
 
   const filtered = useMemo(() => {
     let items = restaurantMenuItems;
@@ -50,7 +72,7 @@ export default function RestaurantMenuScreen() {
     setNewName('');
     setNewDesc('');
     setNewPrice('');
-    setNewCategory('nigerian');
+    setNewCategory(allCategories[0] || 'nigerian');
     setNewPopular(false);
     setSelectedImageUri(null);
   };
@@ -112,6 +134,38 @@ export default function RestaurantMenuScreen() {
     }
   };
 
+  const saveCategories = async (cats: string[]) => {
+    setCategories(cats);
+    if (ownerRestaurant) {
+      const supabase = getSupabaseClient();
+      await supabase.from('restaurants').update({ custom_categories: cats, updated_at: new Date().toISOString() }).eq('id', ownerRestaurant.id);
+    }
+  };
+
+  const handleAddCategory = () => {
+    const name = newCatName.trim().toLowerCase();
+    if (!name) return;
+    if (allCategories.includes(name)) {
+      showAlert('Exists', 'This category already exists.');
+      return;
+    }
+    const updated = [...categories, name];
+    saveCategories(updated);
+    setNewCatName('');
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const handleRemoveCategory = (cat: string) => {
+    const itemsInCat = restaurantMenuItems.filter(i => i.category === cat).length;
+    if (itemsInCat > 0) {
+      showAlert('Cannot Remove', `This category has ${itemsInCat} items. Remove or re-categorize them first.`);
+      return;
+    }
+    const updated = categories.filter(c => c !== cat);
+    saveCategories(updated);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
   const handleAdd = async () => {
     if (!newName.trim() || !newPrice.trim()) {
       showAlert('Missing Info', 'Please enter item name and price');
@@ -139,7 +193,7 @@ export default function RestaurantMenuScreen() {
       image_key: imageKey,
       is_available: true,
       is_popular: newPopular,
-      category: newCategory,
+      category: newCategory || allCategories[0] || 'nigerian',
     });
     setAddLoading(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -219,7 +273,7 @@ export default function RestaurantMenuScreen() {
         <Text style={styles.itemDesc} numberOfLines={1}>{item.description}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
           <Text style={styles.itemPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
-          <View style={[styles.categoryTag, { backgroundColor: 'rgba(255,107,0,0.1)' }]}>
+          <View style={styles.categoryTag}>
             <Text style={styles.categoryTagText}>{item.category}</Text>
           </View>
         </View>
@@ -290,13 +344,13 @@ export default function RestaurantMenuScreen() {
             </View>
             <View style={styles.formGroup}>
               <Text style={styles.formLabel}>Category</Text>
-              <View style={styles.categoryGrid}>
-                {categories.map((cat) => (
-                  <Pressable key={cat} onPress={() => { Haptics.selectionAsync(); setNewCategory(cat); }} style={[styles.categoryChip, newCategory === cat && styles.categoryChipActive]}>
-                    <Text style={[styles.categoryChipText, newCategory === cat && { color: '#FFF' }]}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {allCategories.map((cat) => (
+                  <Pressable key={cat} onPress={() => { Haptics.selectionAsync(); setNewCategory(cat); }} style={[styles.categoryPill, newCategory === cat && styles.categoryPillActive]}>
+                    <Text style={[styles.categoryPillText, newCategory === cat && { color: '#FFF' }]}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</Text>
                   </Pressable>
                 ))}
-              </View>
+              </ScrollView>
             </View>
             <View style={styles.formGroup}>
               <Pressable onPress={() => setNewPopular(!newPopular)} style={styles.popularToggle}>
@@ -333,16 +387,23 @@ export default function RestaurantMenuScreen() {
         <TextInput style={styles.searchInput} placeholder="Search menu items..." placeholderTextColor="#666" value={search} onChangeText={setSearch} />
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 14 }}>
-        <Pressable onPress={() => setActiveFilter('all')} style={[styles.filterChip, activeFilter === 'all' && styles.filterChipActive]}>
-          <Text style={[styles.filterChipText, activeFilter === 'all' && { color: '#FFF' }]}>All</Text>
-        </Pressable>
-        {categories.map(cat => (
-          <Pressable key={cat} onPress={() => { Haptics.selectionAsync(); setActiveFilter(cat); }} style={[styles.filterChip, activeFilter === cat && styles.filterChipActive]}>
-            <Text style={[styles.filterChipText, activeFilter === cat && { color: '#FFF' }]}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</Text>
+      {/* Category filter pills */}
+      <View style={{ marginBottom: 14 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}>
+          <Pressable onPress={() => setActiveFilter('all')} style={[styles.filterPill, activeFilter === 'all' && styles.filterPillActive]}>
+            <Text style={[styles.filterPillText, activeFilter === 'all' && { color: '#FFF' }]}>All</Text>
           </Pressable>
-        ))}
-      </ScrollView>
+          {allCategories.map(cat => (
+            <Pressable key={cat} onPress={() => { Haptics.selectionAsync(); setActiveFilter(cat); }} style={[styles.filterPill, activeFilter === cat && styles.filterPillActive]}>
+              <Text style={[styles.filterPillText, activeFilter === cat && { color: '#FFF' }]}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</Text>
+            </Pressable>
+          ))}
+          <Pressable onPress={() => { Haptics.selectionAsync(); setShowCategoryManager(true); }} style={styles.managePill}>
+            <MaterialIcons name="tune" size={16} color={theme.primary} />
+            <Text style={styles.managePillText}>Manage</Text>
+          </Pressable>
+        </ScrollView>
+      </View>
 
       <FlashList
         data={filtered}
@@ -362,6 +423,54 @@ export default function RestaurantMenuScreen() {
 
       {renderFormModal(showAddModal, () => setShowAddModal(false), 'Add Menu Item', handleAdd, 'Add to Menu')}
       {renderFormModal(showEditModal, () => { setShowEditModal(false); setEditingItem(null); }, 'Edit Menu Item', handleSaveEdit, 'Save Changes')}
+
+      {/* Category Manager Modal */}
+      <Modal visible={showCategoryManager} animationType="slide" transparent>
+        <View style={styles.catModalOverlay}>
+          <View style={[styles.catModalContent, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.catModalHeader}>
+              <Text style={styles.catModalTitle}>Manage Categories</Text>
+              <Pressable onPress={() => setShowCategoryManager(false)}>
+                <MaterialIcons name="close" size={24} color="#FFF" />
+              </Pressable>
+            </View>
+
+            <Text style={styles.catModalSub}>Create custom categories for your menu items. Categories help customers find dishes faster.</Text>
+
+            {/* Add new category */}
+            <View style={styles.addCatRow}>
+              <TextInput
+                style={styles.addCatInput}
+                value={newCatName}
+                onChangeText={setNewCatName}
+                placeholder="New category name"
+                placeholderTextColor="#666"
+                autoCapitalize="words"
+              />
+              <Pressable onPress={handleAddCategory} style={styles.addCatBtn}>
+                <MaterialIcons name="add" size={20} color="#FFF" />
+              </Pressable>
+            </View>
+
+            <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+              {allCategories.map((cat) => {
+                const count = restaurantMenuItems.filter(i => i.category === cat).length;
+                return (
+                  <View key={cat} style={styles.catRow}>
+                    <View style={styles.catPillPreview}>
+                      <Text style={styles.catPillPreviewText}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</Text>
+                    </View>
+                    <Text style={styles.catCount}>{count} item{count !== 1 ? 's' : ''}</Text>
+                    <Pressable onPress={() => handleRemoveCategory(cat)} style={styles.catRemoveBtn}>
+                      <MaterialIcons name="close" size={16} color={count > 0 ? '#555' : '#EF4444'} />
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -374,15 +483,20 @@ const styles = StyleSheet.create({
   addBtnHeader: { width: 44, height: 44, borderRadius: 14, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center' },
   searchBar: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, height: 46, borderRadius: 12, backgroundColor: '#1A1A1A', paddingHorizontal: 14, gap: 10, marginBottom: 14, borderWidth: 1, borderColor: '#2A2A2A' },
   searchInput: { flex: 1, fontSize: 15, color: '#FFF' },
-  filterChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#2A2A2A' },
-  filterChipActive: { backgroundColor: theme.primary, borderColor: theme.primary },
-  filterChipText: { fontSize: 13, fontWeight: '600', color: '#999' },
+
+  // Category filter pills
+  filterPill: { paddingHorizontal: 18, paddingVertical: 9, borderRadius: 20, backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#2A2A2A' },
+  filterPillActive: { backgroundColor: theme.primary, borderColor: theme.primary },
+  filterPillText: { fontSize: 13, fontWeight: '600', color: '#999' },
+  managePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,107,0,0.4)', backgroundColor: 'rgba(255,107,0,0.08)' },
+  managePillText: { fontSize: 13, fontWeight: '600', color: theme.primary },
+
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#1A1A1A', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#2A2A2A' },
   itemImage: { width: 64, height: 64, borderRadius: 10 },
   itemName: { fontSize: 15, fontWeight: '600', color: '#FFF', flex: 1 },
   itemDesc: { fontSize: 12, color: '#999', marginTop: 2 },
   itemPrice: { fontSize: 15, fontWeight: '700', color: theme.primary },
-  categoryTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+  categoryTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: 'rgba(255,107,0,0.1)' },
   categoryTagText: { fontSize: 10, fontWeight: '600', color: theme.primary, textTransform: 'capitalize' },
   itemActions: { gap: 6 },
   editBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(59,130,246,0.1)', alignItems: 'center', justifyContent: 'center' },
@@ -405,11 +519,28 @@ const styles = StyleSheet.create({
   imagePickerText: { fontSize: 14, color: '#999', fontWeight: '500' },
   imageOverlayBtn: { position: 'absolute', bottom: 10, right: 10, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' },
   uploadHint: { fontSize: 12, color: theme.primary, marginTop: 6 },
-  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  categoryChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#2A2A2A' },
-  categoryChipActive: { backgroundColor: theme.primary, borderColor: theme.primary },
-  categoryChipText: { fontSize: 13, fontWeight: '600', color: '#999' },
+
+  // Category pills in form
+  categoryPill: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 22, backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#2A2A2A' },
+  categoryPillActive: { backgroundColor: theme.primary, borderColor: theme.primary },
+  categoryPillText: { fontSize: 13, fontWeight: '600', color: '#999' },
+
   popularToggle: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
   popCheckbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: '#2A2A2A', alignItems: 'center', justifyContent: 'center' },
   popularLabel: { flex: 1, fontSize: 15, color: '#CCC', fontWeight: '500' },
+
+  // Category manager modal
+  catModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  catModalContent: { backgroundColor: '#1A1A1A', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 20, paddingHorizontal: 20 },
+  catModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  catModalTitle: { fontSize: 20, fontWeight: '700', color: '#FFF' },
+  catModalSub: { fontSize: 13, color: '#999', lineHeight: 19, marginBottom: 20 },
+  addCatRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  addCatInput: { flex: 1, backgroundColor: '#0D0D0D', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, fontSize: 15, color: '#FFF', borderWidth: 1, borderColor: '#2A2A2A' },
+  addCatBtn: { width: 48, height: 48, borderRadius: 12, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center' },
+  catRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#2A2A2A' },
+  catPillPreview: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16, backgroundColor: 'rgba(255,107,0,0.12)' },
+  catPillPreviewText: { fontSize: 13, fontWeight: '600', color: theme.primary },
+  catCount: { flex: 1, fontSize: 13, color: '#999' },
+  catRemoveBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: '#0D0D0D', alignItems: 'center', justifyContent: 'center' },
 });

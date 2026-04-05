@@ -6,7 +6,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { theme } from '../constants/theme';
-import { config, calculateDeliveryFee, deliveryPricing } from '../constants/config';
+import { config, calculateDeliveryFee } from '../constants/config';
 import { useApp } from '../contexts/AppContext';
 import { useAlert } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
@@ -78,7 +78,21 @@ export default function CheckoutScreen() {
   const serviceFee = config.serviceFee;
   const total = cartTotal + deliveryFee + serviceFee;
 
+  // Stripe is not yet integrated — no cards on file
+  const hasCard = false;
+
   const handlePlaceOrder = async () => {
+    if (!hasCard) {
+      showAlert(
+        'Add a Payment Card',
+        'You need to add a debit or credit card before you can place an order. Card payment integration is coming soon.',
+        [
+          { text: 'Go to Payment Methods', onPress: () => router.push('/payment-methods') },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+      return;
+    }
     if (!address.trim()) {
       showAlert('Address Required', 'Please enter a delivery address before placing your order.');
       return;
@@ -90,15 +104,6 @@ export default function CheckoutScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace({ pathname: '/order-tracking', params: { orderId: order.id } });
     }
-  };
-
-  // Card requirement check — since Stripe is not yet integrated, we show a notice
-  const handleCardCheck = () => {
-    showAlert(
-      'Card Required',
-      'You need to add a payment card before placing an order. Stripe payment integration will be available shortly.',
-      [{ text: 'OK', style: 'default' }]
-    );
   };
 
   return (
@@ -114,13 +119,16 @@ export default function CheckoutScreen() {
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 180 }} keyboardShouldPersistTaps="handled">
           {/* Card requirement banner */}
-          <View style={styles.cardBanner}>
-            <MaterialIcons name="credit-card" size={20} color="#D97706" />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardBannerTitle}>Payment Card Required</Text>
-              <Text style={styles.cardBannerText}>A valid debit or credit card is required to place an order. Stripe integration is coming soon.</Text>
-            </View>
-          </View>
+          {!hasCard ? (
+            <Pressable onPress={() => router.push('/payment-methods')} style={styles.cardBanner}>
+              <MaterialIcons name="credit-card" size={20} color="#DC2626" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardBannerTitle}>Payment Card Required</Text>
+                <Text style={styles.cardBannerText}>You must add a debit or credit card to place an order. Tap here to add one.</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={20} color="#DC2626" />
+            </Pressable>
+          ) : null}
 
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -142,17 +150,23 @@ export default function CheckoutScreen() {
               <MaterialIcons name="payment" size={20} color={theme.primary} />
               <Text style={styles.sectionTitle}>Payment Method</Text>
             </View>
-            <View style={[styles.paymentOption, styles.paymentOptionActive]}>
-              <View style={[styles.paymentIcon, { backgroundColor: theme.primaryFaint }]}>
-                <MaterialIcons name="credit-card" size={22} color={theme.primary} />
+            <View style={[styles.paymentOption, hasCard ? styles.paymentOptionActive : styles.paymentOptionDisabled]}>
+              <View style={[styles.paymentIcon, { backgroundColor: hasCard ? theme.primaryFaint : theme.backgroundSecondary }]}>
+                <MaterialIcons name="credit-card" size={22} color={hasCard ? theme.primary : theme.textMuted} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.paymentLabel, { color: theme.textPrimary }]}>Debit Card</Text>
-                <Text style={styles.paymentSub}>Secure card payment</Text>
+                <Text style={[styles.paymentLabel, { color: hasCard ? theme.textPrimary : theme.textMuted }]}>Debit Card</Text>
+                <Text style={styles.paymentSub}>{hasCard ? 'Secure card payment' : 'No card added yet'}</Text>
               </View>
-              <View style={[styles.radio, styles.radioActive]}>
-                <View style={styles.radioInner} />
-              </View>
+              {hasCard ? (
+                <View style={[styles.radio, styles.radioActive]}>
+                  <View style={styles.radioInner} />
+                </View>
+              ) : (
+                <Pressable onPress={() => router.push('/payment-methods')} style={styles.addCardLink}>
+                  <Text style={styles.addCardLinkText}>Add Card</Text>
+                </Pressable>
+              )}
             </View>
           </View>
 
@@ -193,7 +207,7 @@ export default function CheckoutScreen() {
           <View style={styles.feeNote}>
             <MaterialIcons name="info-outline" size={16} color={theme.textMuted} />
             <Text style={styles.feeNoteText}>
-              Delivery fee is estimated based on distance. Final fee may adjust slightly after the rider is assigned via Shipday.
+              Delivery fee is estimated based on distance. Final fee may adjust slightly after a rider is assigned.
             </Text>
           </View>
         </ScrollView>
@@ -203,7 +217,12 @@ export default function CheckoutScreen() {
             <Text style={styles.totalLabel}>Total</Text>
             <Text style={styles.totalValue}>{config.currency}{total.toLocaleString()}</Text>
           </View>
-          <PrimaryButton label={loading ? 'Placing Order...' : `Place Order \u00B7 ${config.currency}${total.toLocaleString()}`} onPress={handlePlaceOrder} loading={loading} variant="dark" />
+          <PrimaryButton
+            label={loading ? 'Placing Order...' : !hasCard ? 'Add Card to Order' : `Place Order \u00B7 ${config.currency}${total.toLocaleString()}`}
+            onPress={handlePlaceOrder}
+            loading={loading}
+            variant={hasCard ? 'dark' : 'primary'}
+          />
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -215,9 +234,9 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
   backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: theme.textPrimary },
-  cardBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginHorizontal: 16, marginBottom: 16, padding: 14, borderRadius: 14, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
-  cardBannerTitle: { fontSize: 14, fontWeight: '700', color: '#92400E', marginBottom: 2 },
-  cardBannerText: { fontSize: 13, color: '#92400E', lineHeight: 18 },
+  cardBanner: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 16, padding: 14, borderRadius: 14, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' },
+  cardBannerTitle: { fontSize: 14, fontWeight: '700', color: '#DC2626', marginBottom: 2 },
+  cardBannerText: { fontSize: 13, color: '#991B1B', lineHeight: 18 },
   section: { paddingHorizontal: 16, marginBottom: 20 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
@@ -225,14 +244,17 @@ const styles = StyleSheet.create({
   addressInput: { backgroundColor: theme.backgroundSecondary, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, color: theme.textPrimary, minHeight: 52, borderWidth: 1, borderColor: theme.border },
   locationDetected: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
   locationDetectedText: { fontSize: 12, color: theme.success, fontWeight: '500' },
-  paymentOption: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1.5, borderColor: theme.border, marginBottom: 10 },
+  paymentOption: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1.5, marginBottom: 10 },
   paymentOptionActive: { borderColor: theme.primary, backgroundColor: theme.primaryFaint },
-  paymentIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center' },
-  paymentLabel: { fontSize: 15, fontWeight: '600', color: theme.textSecondary },
+  paymentOptionDisabled: { borderColor: '#FECACA', backgroundColor: '#FEF2F2' },
+  paymentIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  paymentLabel: { fontSize: 15, fontWeight: '600' },
   paymentSub: { fontSize: 12, color: theme.textMuted, marginTop: 2 },
   radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' },
   radioActive: { borderColor: theme.primary },
   radioInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: theme.primary },
+  addCardLink: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: theme.primary },
+  addCardLinkText: { fontSize: 13, fontWeight: '700', color: '#FFF' },
   noteInput: { backgroundColor: theme.backgroundSecondary, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 14, color: theme.textPrimary, minHeight: 48, borderWidth: 1, borderColor: theme.border },
   summaryItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
   summaryItemQty: { fontSize: 14, fontWeight: '600', color: theme.primary, width: 30 },
