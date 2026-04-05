@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, withDelay } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence } from 'react-native-reanimated';
 import { theme } from '../constants/theme';
 import { useApp } from '../contexts/AppContext';
 
@@ -18,15 +18,16 @@ export default function OrderTrackingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
-  const { customerOrders } = useApp();
+  const { customerOrders, updateOrderStatus } = useApp();
 
   const order = customerOrders.find(o => o.id === orderId) || customerOrders[0];
   const [currentStep, setCurrentStep] = useState(0);
+  const autoProgressRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const statusIndex = steps.findIndex(s => s.key === order?.status);
 
+  // Animate steps sequentially
   useEffect(() => {
-    // Animate steps
     let step = 0;
     const target = statusIndex >= 0 ? statusIndex : 0;
     const interval = setInterval(() => {
@@ -40,27 +41,44 @@ export default function OrderTrackingScreen() {
     return () => clearInterval(interval);
   }, [statusIndex]);
 
-  // Animated scale for the current step icon
-  const scaleAnim = useSharedValue(1);
+  // Auto-progress order status every 8 seconds for demo
   useEffect(() => {
-    scaleAnim.value = withTiming(1.15, { duration: 400 });
-    const t = setTimeout(() => { scaleAnim.value = withTiming(1, { duration: 400 }); }, 400);
-    return () => clearTimeout(t);
+    if (!order || order.status === 'delivered' || order.status === 'cancelled') return;
+
+    autoProgressRef.current = setInterval(() => {
+      const currentIdx = steps.findIndex(s => s.key === order.status);
+      if (currentIdx >= 0 && currentIdx < steps.length - 1) {
+        const nextStatus = steps[currentIdx + 1].key;
+        updateOrderStatus(order.id, nextStatus);
+      }
+    }, 8000);
+
+    return () => {
+      if (autoProgressRef.current) clearInterval(autoProgressRef.current);
+    };
+  }, [order?.status, order?.id]);
+
+  // Pulse animation for current step
+  const pulseScale = useSharedValue(1);
+  useEffect(() => {
+    pulseScale.value = withRepeat(
+      withSequence(
+        withTiming(1.15, { duration: 600 }),
+        withTiming(1, { duration: 600 })
+      ),
+      -1,
+      true
+    );
   }, [currentStep]);
 
-  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scaleAnim.value }] }));
+  const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulseScale.value }] }));
 
   if (!order) {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <Text>Order not found</Text>
-      </View>
-    );
+    return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Order not found</Text></View>;
   }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
-      {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.replace('/(tabs)/orders')} style={styles.backBtn}>
           <MaterialIcons name="close" size={22} color={theme.textPrimary} />
@@ -69,16 +87,12 @@ export default function OrderTrackingScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Success banner */}
       <View style={styles.successBanner}>
-        <View style={styles.successIcon}>
-          <MaterialIcons name="check" size={28} color="#FFF" />
-        </View>
+        <View style={styles.successIcon}><MaterialIcons name="check" size={28} color="#FFF" /></View>
         <Text style={styles.successTitle}>Order Placed!</Text>
-        <Text style={styles.successSub}>Estimated delivery: {order.estimatedDelivery}</Text>
+        <Text style={styles.successSub}>Estimated delivery: {order.estimated_delivery}</Text>
       </View>
 
-      {/* Timeline */}
       <View style={styles.timeline}>
         {steps.map((step, idx) => {
           const isCompleted = idx <= currentStep;
@@ -89,22 +103,14 @@ export default function OrderTrackingScreen() {
                 <Animated.View style={[
                   styles.timelineDot,
                   isCompleted && { backgroundColor: theme.primary },
-                  isCurrent && animatedStyle,
+                  isCurrent ? pulseStyle : undefined,
                 ]}>
-                  <MaterialIcons
-                    name={step.icon as any}
-                    size={20}
-                    color={isCompleted ? '#FFF' : theme.textMuted}
-                  />
+                  <MaterialIcons name={step.icon as any} size={20} color={isCompleted ? '#FFF' : theme.textMuted} />
                 </Animated.View>
-                {idx < steps.length - 1 && (
-                  <View style={[styles.timelineLine, isCompleted && { backgroundColor: theme.primary }]} />
-                )}
+                {idx < steps.length - 1 ? <View style={[styles.timelineLine, isCompleted && { backgroundColor: theme.primary }]} /> : null}
               </View>
               <View style={styles.timelineContent}>
-                <Text style={[styles.timelineLabel, isCompleted && { color: theme.textPrimary, fontWeight: '700' }]}>
-                  {step.label}
-                </Text>
+                <Text style={[styles.timelineLabel, isCompleted && { color: theme.textPrimary, fontWeight: '700' }]}>{step.label}</Text>
                 <Text style={styles.timelineSub}>{step.sub}</Text>
               </View>
             </View>
@@ -112,23 +118,13 @@ export default function OrderTrackingScreen() {
         })}
       </View>
 
-      {/* Order Info */}
       <View style={styles.orderInfo}>
         <Text style={styles.infoTitle}>Order Details</Text>
-        <View style={styles.infoRow}>
-          <MaterialIcons name="storefront" size={18} color={theme.textMuted} />
-          <Text style={styles.infoText}>{order.restaurantName}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <MaterialIcons name="location-on" size={18} color={theme.textMuted} />
-          <Text style={styles.infoText}>{order.deliveryAddress}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <MaterialIcons name="receipt" size={18} color={theme.textMuted} />
-          <Text style={styles.infoText}>{order.id}</Text>
-        </View>
+        <View style={styles.infoRow}><MaterialIcons name="storefront" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.restaurant_name}</Text></View>
+        <View style={styles.infoRow}><MaterialIcons name="location-on" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.delivery_address}</Text></View>
+        <View style={styles.infoRow}><MaterialIcons name="receipt" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.order_number}</Text></View>
         <View style={styles.divider} />
-        {order.items.map((item, idx) => (
+        {(order.order_items || []).map((item, idx) => (
           <Text key={idx} style={styles.itemText}>{item.quantity}x {item.name} — ₦{(item.price * item.quantity).toLocaleString()}</Text>
         ))}
         <View style={styles.divider} />
@@ -140,11 +136,7 @@ export default function OrderTrackingScreen() {
 
       <View style={{ flex: 1 }} />
 
-      {/* Back to Home */}
-      <Pressable
-        onPress={() => router.replace('/(tabs)')}
-        style={[styles.homeBtn, { marginBottom: insets.bottom + 16 }]}
-      >
+      <Pressable onPress={() => router.replace('/(tabs)')} style={[styles.homeBtn, { marginBottom: insets.bottom + 16 }]}>
         <Text style={styles.homeBtnText}>Back to Home</Text>
       </Pressable>
     </View>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
@@ -7,7 +7,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
-import { Order } from '../../services/mockData';
+import { DbOrder } from '../../services/supabaseData';
 
 const statusConfig: Record<string, { color: string; bg: string; icon: string; label: string }> = {
   pending: { color: '#F59E0B', bg: '#FEF3C7', icon: 'schedule', label: 'Pending' },
@@ -20,20 +20,21 @@ const statusConfig: Record<string, { color: string; bg: string; icon: string; la
 
 export default function OrdersScreen() {
   const insets = useSafeAreaInsets();
-  const { customerOrders } = useApp();
+  const { customerOrders, loadingOrders } = useApp();
 
-  const renderOrder = ({ item }: { item: Order }) => {
+  const renderOrder = ({ item }: { item: DbOrder }) => {
     const status = statusConfig[item.status] || statusConfig.pending;
-    const date = new Date(item.createdAt);
+    const date = new Date(item.created_at);
     const dateStr = date.toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' });
+    const items = item.order_items || [];
 
     return (
       <View style={styles.orderCard}>
         <View style={styles.orderHeader}>
-          <Image source={getImage(item.restaurantImageKey)} style={styles.restaurantImg} contentFit="cover" />
+          <Image source={getImage(item.restaurant_image_key)} style={styles.restaurantImg} contentFit="cover" />
           <View style={{ flex: 1 }}>
-            <Text style={styles.restaurantName}>{item.restaurantName}</Text>
-            <Text style={styles.orderDate}>{dateStr} · {item.id}</Text>
+            <Text style={styles.restaurantName}>{item.restaurant_name}</Text>
+            <Text style={styles.orderDate}>{dateStr} · {item.order_number}</Text>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
             <MaterialIcons name={status.icon as any} size={14} color={status.color} />
@@ -42,7 +43,7 @@ export default function OrdersScreen() {
         </View>
         <View style={styles.orderDivider} />
         <View style={styles.orderItems}>
-          {item.items.map((i, idx) => (
+          {items.map((i, idx) => (
             <Text key={idx} style={styles.itemText}>{i.quantity}x {i.name}</Text>
           ))}
         </View>
@@ -60,7 +61,9 @@ export default function OrdersScreen() {
         <Text style={styles.title}>My Orders</Text>
       </View>
 
-      {customerOrders.length > 0 ? (
+      {loadingOrders ? (
+        <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 40 }} />
+      ) : customerOrders.length > 0 ? (
         <FlashList
           data={customerOrders}
           keyExtractor={(item) => item.id}

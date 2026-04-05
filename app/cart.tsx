@@ -20,46 +20,36 @@ export default function CartScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={() => router.back()} style={styles.closeBtn}>
           <MaterialIcons name="close" size={24} color={theme.textPrimary} />
         </Pressable>
         <Text style={styles.headerTitle}>Cart ({cartCount})</Text>
-        {cart.length > 0 && (
+        {cart.length > 0 ? (
           <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); clearCart(); }}>
             <Text style={styles.clearText}>Clear</Text>
           </Pressable>
-        )}
+        ) : <View style={{ width: 40 }} />}
       </View>
 
       {cart.length > 0 ? (
         <>
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 200 }}
-          >
-            {/* Restaurant */}
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 200 }}>
             <View style={styles.restaurantRow}>
               <MaterialIcons name="storefront" size={18} color={theme.primary} />
               <Text style={styles.restaurantName}>{cart[0]?.restaurantName}</Text>
             </View>
 
-            {/* Items */}
             {cart.map((ci) => (
               <View key={ci.menuItem.id} style={styles.cartItem}>
-                <Image source={getImage(ci.menuItem.imageKey)} style={styles.itemImage} contentFit="cover" />
+                <Image source={getImage(ci.menuItem.image_key)} style={styles.itemImage} contentFit="cover" />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemName} numberOfLines={1}>{ci.menuItem.name}</Text>
                   <Text style={styles.itemPrice}>₦{(ci.menuItem.price * ci.quantity).toLocaleString()}</Text>
                 </View>
                 <View style={styles.qtyControl}>
                   <Pressable
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      if (ci.quantity === 1) removeFromCart(ci.menuItem.id);
-                      else updateCartQuantity(ci.menuItem.id, ci.quantity - 1);
-                    }}
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); ci.quantity === 1 ? removeFromCart(ci.menuItem.id) : updateCartQuantity(ci.menuItem.id, ci.quantity - 1); }}
                     style={styles.qtyBtn}
                   >
                     <MaterialIcons name={ci.quantity === 1 ? 'delete-outline' : 'remove'} size={18} color={ci.quantity === 1 ? theme.error : theme.textPrimary} />
@@ -75,21 +65,11 @@ export default function CartScreen() {
               </View>
             ))}
 
-            {/* Summary */}
             <View style={styles.summarySection}>
               <Text style={styles.summaryTitle}>Order Summary</Text>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Subtotal</Text>
-                <Text style={styles.summaryValue}>₦{cartTotal.toLocaleString()}</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Delivery fee</Text>
-                <Text style={styles.summaryValue}>₦{deliveryFee.toLocaleString()}</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Service fee</Text>
-                <Text style={styles.summaryValue}>₦{serviceFee.toLocaleString()}</Text>
-              </View>
+              <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Subtotal</Text><Text style={styles.summaryValue}>₦{cartTotal.toLocaleString()}</Text></View>
+              <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Delivery fee</Text><Text style={styles.summaryValue}>₦{deliveryFee.toLocaleString()}</Text></View>
+              <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Service fee</Text><Text style={styles.summaryValue}>₦{serviceFee.toLocaleString()}</Text></View>
               <View style={[styles.summaryRow, styles.totalRow]}>
                 <Text style={styles.totalLabel}>Total</Text>
                 <Text style={styles.totalValue}>₦{total.toLocaleString()}</Text>
@@ -97,7 +77,6 @@ export default function CartScreen() {
             </View>
           </ScrollView>
 
-          {/* Checkout Button */}
           <View style={[styles.checkoutBar, { paddingBottom: insets.bottom + 16 }]}>
             <Pressable
               onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push('/checkout'); }}
@@ -113,10 +92,7 @@ export default function CartScreen() {
           <Image source={require('../assets/images/empty-orders.jpg')} style={styles.emptyImage} contentFit="contain" />
           <Text style={styles.emptyTitle}>Your cart is empty</Text>
           <Text style={styles.emptySubtitle}>Add some delicious meals from nearby restaurants</Text>
-          <Pressable
-            onPress={() => router.back()}
-            style={styles.browseBtn}
-          >
+          <Pressable onPress={() => router.back()} style={styles.browseBtn}>
             <Text style={styles.browseBtnText}>Browse Restaurants</Text>
           </Pressable>
         </View>

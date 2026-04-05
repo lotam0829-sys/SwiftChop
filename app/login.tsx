@@ -5,41 +5,33 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
-import { useApp } from '../contexts/AppContext';
+import { useAuth, useAlert } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
 
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { role } = useLocalSearchParams<{ role: string }>();
-  const { login, loginWithGoogle } = useApp();
+  const { signInWithPassword, operationLoading } = useAuth();
+  const { showAlert } = useAlert();
   const userRole = (role as 'customer' | 'restaurant') || 'customer';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  const handleLogin = () => {
-    setError('');
-    if (!email.trim()) { setError('Please enter your email'); return; }
-    if (!password.trim()) { setError('Please enter your password'); return; }
-    if (!email.includes('@')) { setError('Please enter a valid email'); return; }
+  const handleLogin = async () => {
+    if (!email.trim()) { showAlert('Error', 'Please enter your email'); return; }
+    if (!password.trim()) { showAlert('Error', 'Please enter your password'); return; }
+    if (!email.includes('@')) { showAlert('Error', 'Please enter a valid email'); return; }
 
-    setLoading(true);
-    setTimeout(() => {
-      const success = login(email, password, userRole);
-      setLoading(false);
-      if (success) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    }, 600);
-  };
-
-  const handleGoogleLogin = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    loginWithGoogle(userRole);
+    const { error } = await signInWithPassword(email, password);
+    if (error) {
+      showAlert('Login Failed', error);
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // AuthRouter / root navigator handles redirect
+    }
   };
 
   return (
@@ -50,12 +42,10 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Back */}
           <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <MaterialIcons name="arrow-back" size={24} color={theme.textPrimary} />
           </Pressable>
 
-          {/* Header */}
           <View style={styles.header}>
             <View style={[styles.roleBadge, { backgroundColor: userRole === 'customer' ? theme.primaryFaint : '#EDE9FE' }]}>
               <MaterialIcons
@@ -71,28 +61,11 @@ export default function LoginScreen() {
             <Text style={styles.subtitle}>Sign in to your SwiftChop account</Text>
           </View>
 
-          {/* Google */}
-          <PrimaryButton
-            label="Continue with Google"
-            onPress={handleGoogleLogin}
-            variant="google"
-            icon={<Ionicons name="logo-google" size={20} color="#EA4335" />}
-          />
-
-          {/* Divider */}
           <View style={styles.divider}>
             <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or sign in with email</Text>
+            <Text style={styles.dividerText}>Sign in with email</Text>
             <View style={styles.dividerLine} />
           </View>
-
-          {/* Error */}
-          {error ? (
-            <View style={styles.errorBox}>
-              <MaterialIcons name="error-outline" size={16} color={theme.error} />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          ) : null}
 
           {/* Email */}
           <View style={styles.inputGroup}>
@@ -131,20 +104,16 @@ export default function LoginScreen() {
             </View>
           </View>
 
-          <Pressable style={{ alignSelf: 'flex-end', marginBottom: 24 }}>
-            <Text style={{ color: theme.primary, fontSize: 14, fontWeight: '600' }}>Forgot password?</Text>
-          </Pressable>
+          <View style={{ height: 24 }} />
 
-          {/* Login button */}
-          <PrimaryButton label="Sign In" onPress={handleLogin} loading={loading} variant="dark" />
+          <PrimaryButton label="Sign In" onPress={handleLogin} loading={operationLoading} variant="dark" />
 
-          {/* Sign up link */}
           <Pressable
             onPress={() => router.push({ pathname: '/signup', params: { role: userRole } })}
             style={{ marginTop: 20, alignSelf: 'center' }}
           >
             <Text style={styles.switchText}>
-              Don't have an account? <Text style={{ color: theme.primary, fontWeight: '600' }}>Sign up</Text>
+              {"Don't have an account? "}<Text style={{ color: theme.primary, fontWeight: '600' }}>Sign up</Text>
             </Text>
           </Pressable>
         </ScrollView>
@@ -165,8 +134,6 @@ const styles = StyleSheet.create({
   divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 24, gap: 12 },
   dividerLine: { flex: 1, height: 1, backgroundColor: theme.border },
   dividerText: { fontSize: 13, color: theme.textMuted },
-  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.errorLight, padding: 12, borderRadius: 10, marginBottom: 16 },
-  errorText: { fontSize: 13, color: theme.error, flex: 1 },
   inputGroup: { marginBottom: 16 },
   inputLabel: { fontSize: 14, fontWeight: '600', color: theme.textPrimary, marginBottom: 8 },
   inputWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, height: 52, backgroundColor: theme.backgroundSecondary },

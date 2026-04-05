@@ -28,21 +28,20 @@ export default function CheckoutScreen() {
     { id: 'cash' as const, icon: 'payments', label: 'Cash on Delivery', sub: 'Pay the rider' },
   ];
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (!address.trim()) return;
     setLoading(true);
-    setTimeout(() => {
-      const order = placeOrder(address);
-      setLoading(false);
+    const order = await placeOrder(address, note, paymentMethod);
+    setLoading(false);
+    if (order) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace({ pathname: '/order-tracking', params: { orderId: order.id } });
-    }, 1200);
+    }
   };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        {/* Header */}
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
@@ -51,39 +50,22 @@ export default function CheckoutScreen() {
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 180 }}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Delivery Address */}
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 180 }} keyboardShouldPersistTaps="handled">
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <MaterialIcons name="location-on" size={20} color={theme.primary} />
               <Text style={styles.sectionTitle}>Delivery Address</Text>
             </View>
-            <TextInput
-              style={styles.addressInput}
-              value={address}
-              onChangeText={setAddress}
-              placeholder="Enter delivery address"
-              placeholderTextColor={theme.textMuted}
-              multiline
-            />
+            <TextInput style={styles.addressInput} value={address} onChangeText={setAddress} placeholder="Enter delivery address" placeholderTextColor={theme.textMuted} multiline />
           </View>
 
-          {/* Payment Method */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <MaterialIcons name="payment" size={20} color={theme.primary} />
               <Text style={styles.sectionTitle}>Payment Method</Text>
             </View>
             {payments.map((p) => (
-              <Pressable
-                key={p.id}
-                onPress={() => { Haptics.selectionAsync(); setPaymentMethod(p.id); }}
-                style={[styles.paymentOption, paymentMethod === p.id && styles.paymentOptionActive]}
-              >
+              <Pressable key={p.id} onPress={() => { Haptics.selectionAsync(); setPaymentMethod(p.id); }} style={[styles.paymentOption, paymentMethod === p.id && styles.paymentOptionActive]}>
                 <View style={[styles.paymentIcon, paymentMethod === p.id && { backgroundColor: theme.primaryFaint }]}>
                   <MaterialIcons name={p.icon as any} size={22} color={paymentMethod === p.id ? theme.primary : theme.textMuted} />
                 </View>
@@ -92,29 +74,20 @@ export default function CheckoutScreen() {
                   <Text style={styles.paymentSub}>{p.sub}</Text>
                 </View>
                 <View style={[styles.radio, paymentMethod === p.id && styles.radioActive]}>
-                  {paymentMethod === p.id && <View style={styles.radioInner} />}
+                  {paymentMethod === p.id ? <View style={styles.radioInner} /> : null}
                 </View>
               </Pressable>
             ))}
           </View>
 
-          {/* Note */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <MaterialIcons name="edit-note" size={20} color={theme.primary} />
               <Text style={styles.sectionTitle}>Delivery Note (optional)</Text>
             </View>
-            <TextInput
-              style={styles.noteInput}
-              value={note}
-              onChangeText={setNote}
-              placeholder="e.g. Ring the doorbell, leave at gate..."
-              placeholderTextColor={theme.textMuted}
-              multiline
-            />
+            <TextInput style={styles.noteInput} value={note} onChangeText={setNote} placeholder="e.g. Ring the doorbell, leave at gate..." placeholderTextColor={theme.textMuted} multiline />
           </View>
 
-          {/* Order Summary */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <MaterialIcons name="receipt" size={20} color={theme.primary} />
@@ -128,33 +101,18 @@ export default function CheckoutScreen() {
               </View>
             ))}
             <View style={styles.divider} />
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Subtotal</Text>
-              <Text style={styles.summaryValue}>₦{cartTotal.toLocaleString()}</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Delivery fee</Text>
-              <Text style={styles.summaryValue}>₦{deliveryFee.toLocaleString()}</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Service fee</Text>
-              <Text style={styles.summaryValue}>₦{serviceFee.toLocaleString()}</Text>
-            </View>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Subtotal</Text><Text style={styles.summaryValue}>₦{cartTotal.toLocaleString()}</Text></View>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Delivery fee</Text><Text style={styles.summaryValue}>₦{deliveryFee.toLocaleString()}</Text></View>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Service fee</Text><Text style={styles.summaryValue}>₦{serviceFee.toLocaleString()}</Text></View>
           </View>
         </ScrollView>
 
-        {/* Bottom CTA */}
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total</Text>
             <Text style={styles.totalValue}>₦{total.toLocaleString()}</Text>
           </View>
-          <PrimaryButton
-            label={loading ? 'Placing Order...' : `Place Order · ₦${total.toLocaleString()}`}
-            onPress={handlePlaceOrder}
-            loading={loading}
-            variant="dark"
-          />
+          <PrimaryButton label={loading ? 'Placing Order...' : `Place Order · ₦${total.toLocaleString()}`} onPress={handlePlaceOrder} loading={loading} variant="dark" />
         </View>
       </KeyboardAvoidingView>
     </View>

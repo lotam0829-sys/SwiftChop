@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, Alert, Modal, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
@@ -7,17 +7,19 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
+import { useAlert } from '@/template';
 import { getImage } from '../../constants/images';
-import { MenuItem } from '../../services/mockData';
+import { DbMenuItem } from '../../services/supabaseData';
 import PrimaryButton from '../../components/ui/PrimaryButton';
 
 export default function RestaurantMenuScreen() {
   const insets = useSafeAreaInsets();
-  const { restaurantMenuItems, addMenuItem, deleteMenuItem, toggleMenuItemAvailability } = useApp();
+  const { restaurantMenuItems, addMenuItem, deleteMenuItemAction, toggleMenuItemAvailability, ownerRestaurant } = useApp();
+  const { showAlert } = useAlert();
   const [showAddModal, setShowAddModal] = useState(false);
   const [search, setSearch] = useState('');
+  const [addLoading, setAddLoading] = useState(false);
 
-  // Add form state
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newPrice, setNewPrice] = useState('');
@@ -27,35 +29,44 @@ export default function RestaurantMenuScreen() {
     ? restaurantMenuItems.filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
     : restaurantMenuItems;
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!newName.trim() || !newPrice.trim()) {
-      Alert.alert('Missing Info', 'Please enter item name and price');
+      showAlert('Missing Info', 'Please enter item name and price');
       return;
     }
-    addMenuItem({
+    if (!ownerRestaurant) {
+      showAlert('Error', 'No restaurant linked to your account');
+      return;
+    }
+    setAddLoading(true);
+    await addMenuItem({
+      restaurant_id: ownerRestaurant.id,
       name: newName,
       description: newDesc,
       price: parseInt(newPrice) || 0,
-      imageKey: 'heroJollof',
-      isAvailable: true,
-      isPopular: false,
+      image_key: 'heroJollof',
+      is_available: true,
+      is_popular: false,
       category: newCategory,
     });
+    setAddLoading(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setNewName(''); setNewDesc(''); setNewPrice(''); setNewCategory('nigerian');
     setShowAddModal(false);
   };
 
-  const handleDelete = (item: MenuItem) => {
-    Alert.alert('Delete Item', `Remove "${item.name}" from menu?`, [
+  const handleDelete = (item: DbMenuItem) => {
+    showAlert('Delete Item', `Remove "${item.name}" from menu?`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); deleteMenuItem(item.id); } },
+      { text: 'Delete', style: 'destructive', onPress: () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); deleteMenuItemAction(item.id); } },
     ]);
   };
 
-  const renderItem = ({ item }: { item: MenuItem }) => (
-    <View style={[styles.menuItem, !item.isAvailable && { opacity: 0.6 }]}>
-      <Image source={getImage(item.imageKey)} style={styles.itemImage} contentFit="cover" />
+  const categories = ['nigerian', 'rice', 'grilled', 'soups', 'snacks', 'drinks'];
+
+  const renderItem = ({ item }: { item: DbMenuItem }) => (
+    <View style={[styles.menuItem, !item.is_available && { opacity: 0.6 }]}>
+      <Image source={getImage(item.image_key)} style={styles.itemImage} contentFit="cover" />
       <View style={{ flex: 1 }}>
         <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
         <Text style={styles.itemDesc} numberOfLines={1}>{item.description}</Text>
@@ -64,9 +75,9 @@ export default function RestaurantMenuScreen() {
       <View style={styles.itemActions}>
         <Pressable
           onPress={() => { Haptics.selectionAsync(); toggleMenuItemAvailability(item.id); }}
-          style={[styles.toggleBtn, item.isAvailable && styles.toggleBtnActive]}
+          style={[styles.toggleBtn, item.is_available && styles.toggleBtnActive]}
         >
-          <MaterialIcons name={item.isAvailable ? 'visibility' : 'visibility-off'} size={18} color={item.isAvailable ? '#10B981' : '#999'} />
+          <MaterialIcons name={item.is_available ? 'visibility' : 'visibility-off'} size={18} color={item.is_available ? '#10B981' : '#999'} />
         </Pressable>
         <Pressable onPress={() => handleDelete(item)} style={styles.deleteBtn}>
           <MaterialIcons name="delete-outline" size={18} color="#EF4444" />
@@ -75,37 +86,23 @@ export default function RestaurantMenuScreen() {
     </View>
   );
 
-  const categories = ['nigerian', 'rice', 'grilled', 'soups', 'snacks', 'drinks'];
-
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Menu</Text>
-          <Text style={styles.subtitle}>{restaurantMenuItems.length} items · {restaurantMenuItems.filter(i => i.isAvailable).length} available</Text>
+          <Text style={styles.subtitle}>{restaurantMenuItems.length} items · {restaurantMenuItems.filter(i => i.is_available).length} available</Text>
         </View>
-        <Pressable
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowAddModal(true); }}
-          style={styles.addBtn}
-        >
+        <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowAddModal(true); }} style={styles.addBtn}>
           <MaterialIcons name="add" size={22} color="#FFF" />
         </Pressable>
       </View>
 
-      {/* Search */}
       <View style={styles.searchBar}>
         <MaterialIcons name="search" size={20} color="#999" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search menu items..."
-          placeholderTextColor="#666"
-          value={search}
-          onChangeText={setSearch}
-        />
+        <TextInput style={styles.searchInput} placeholder="Search menu items..." placeholderTextColor="#666" value={search} onChangeText={setSearch} />
       </View>
 
-      {/* List */}
       <FlashList
         data={filtered}
         keyExtractor={(item) => item.id}
@@ -122,14 +119,10 @@ export default function RestaurantMenuScreen() {
         }
       />
 
-      {/* Add Item Modal */}
       <Modal visible={showAddModal} animationType="slide" presentationStyle="pageSheet">
         <View style={[styles.modalContainer, { paddingTop: insets.top + 16 }]}>
           <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-            <ScrollView
-              contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
-              keyboardShouldPersistTaps="handled"
-            >
+            <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }} keyboardShouldPersistTaps="handled">
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Add Menu Item</Text>
                 <Pressable onPress={() => setShowAddModal(false)} style={styles.closeBtn}>
@@ -141,36 +134,26 @@ export default function RestaurantMenuScreen() {
                 <Text style={styles.formLabel}>Item Name</Text>
                 <TextInput style={styles.formInput} placeholder="e.g. Jollof Rice & Chicken" placeholderTextColor="#666" value={newName} onChangeText={setNewName} />
               </View>
-
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Description</Text>
                 <TextInput style={[styles.formInput, { minHeight: 80 }]} placeholder="Describe this dish..." placeholderTextColor="#666" value={newDesc} onChangeText={setNewDesc} multiline />
               </View>
-
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Price (₦)</Text>
                 <TextInput style={styles.formInput} placeholder="e.g. 3500" placeholderTextColor="#666" value={newPrice} onChangeText={setNewPrice} keyboardType="number-pad" />
               </View>
-
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Category</Text>
                 <View style={styles.categoryGrid}>
                   {categories.map((cat) => (
-                    <Pressable
-                      key={cat}
-                      onPress={() => { Haptics.selectionAsync(); setNewCategory(cat); }}
-                      style={[styles.categoryChip, newCategory === cat && styles.categoryChipActive]}
-                    >
-                      <Text style={[styles.categoryChipText, newCategory === cat && { color: '#FFF' }]}>
-                        {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                      </Text>
+                    <Pressable key={cat} onPress={() => { Haptics.selectionAsync(); setNewCategory(cat); }} style={[styles.categoryChip, newCategory === cat && styles.categoryChipActive]}>
+                      <Text style={[styles.categoryChipText, newCategory === cat && { color: '#FFF' }]}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</Text>
                     </Pressable>
                   ))}
                 </View>
               </View>
-
               <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-                <PrimaryButton label="Add to Menu" onPress={handleAdd} variant="primary" />
+                <PrimaryButton label="Add to Menu" onPress={handleAdd} loading={addLoading} variant="primary" />
               </View>
             </ScrollView>
           </KeyboardAvoidingView>
@@ -200,7 +183,6 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: { fontSize: 16, fontWeight: '600', color: '#FFF', marginTop: 12 },
   emptySubtitle: { fontSize: 14, color: '#999', marginTop: 4 },
-  // Modal
   modalContainer: { flex: 1, backgroundColor: '#0D0D0D' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 24 },
   modalTitle: { fontSize: 24, fontWeight: '700', color: '#FFF' },

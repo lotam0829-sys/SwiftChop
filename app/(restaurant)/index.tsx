@@ -1,17 +1,19 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 
 export default function RestaurantDashboard() {
   const insets = useSafeAreaInsets();
-  const { user, restaurantOrders, restaurantMenuItems } = useApp();
+  const router = useRouter();
+  const { userProfile, restaurantOrders, restaurantMenuItems, loadingRestaurantData, ownerRestaurant } = useApp();
 
   const todayOrders = restaurantOrders.filter(o => {
-    const d = new Date(o.createdAt);
+    const d = new Date(o.created_at);
     const today = new Date();
     return d.toDateString() === today.toDateString();
   });
@@ -26,17 +28,17 @@ export default function RestaurantDashboard() {
     { label: 'Preparing', value: preparingCount.toString(), icon: 'restaurant', color: '#8B5CF6', bg: '#EDE9FE' },
   ];
 
+  if (loadingRestaurantData) {
+    return <View style={{ flex: 1, backgroundColor: '#0D0D0D', alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="large" color={theme.primary} /></View>;
+  }
+
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
-      >
-        {/* Header */}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}>
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'} 👨‍🍳</Text>
-            <Text style={styles.restaurantName}>{user?.restaurantName || 'My Restaurant'}</Text>
+            <Text style={styles.restaurantName}>{ownerRestaurant?.name || userProfile?.restaurant_name || 'My Restaurant'}</Text>
           </View>
           <View style={styles.statusBadge}>
             <View style={styles.statusDot} />
@@ -44,11 +46,10 @@ export default function RestaurantDashboard() {
           </View>
         </View>
 
-        {/* Revenue Card */}
         <LinearGradient colors={['#1A1A1A', '#111']} style={styles.revenueCard}>
           <View style={styles.revenueRow}>
             <View>
-              <Text style={styles.revenueLabel}>TODAY'S REVENUE</Text>
+              <Text style={styles.revenueLabel}>{"TODAY'S REVENUE"}</Text>
               <Text style={styles.revenueValue}>₦{todayRevenue.toLocaleString()}</Text>
             </View>
             <View style={styles.revenueIconWrap}>
@@ -58,11 +59,10 @@ export default function RestaurantDashboard() {
           <View style={styles.revenueMeta}>
             <Text style={styles.revenueMetaText}>{todayOrders.length} orders today</Text>
             <Text style={styles.revenueMetaText}>·</Text>
-            <Text style={styles.revenueMetaText}>{restaurantMenuItems.filter(i => i.isAvailable).length} items live</Text>
+            <Text style={styles.revenueMetaText}>{restaurantMenuItems.filter(i => i.is_available).length} items live</Text>
           </View>
         </LinearGradient>
 
-        {/* Stats Grid */}
         <View style={styles.statsGrid}>
           {statCards.map((stat, idx) => (
             <View key={idx} style={styles.statCard}>
@@ -75,21 +75,24 @@ export default function RestaurantDashboard() {
           ))}
         </View>
 
-        {/* Recent Orders */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Orders</Text>
+          {restaurantOrders.length === 0 ? (
+            <Text style={{ color: '#666', fontSize: 14 }}>No orders yet. They will appear here when customers order.</Text>
+          ) : null}
           {restaurantOrders.slice(0, 5).map((order) => {
             const statusColors: Record<string, string> = {
               pending: '#F59E0B', confirmed: '#3B82F6', preparing: '#8B5CF6',
               on_the_way: '#F59E0B', delivered: '#10B981', cancelled: '#EF4444',
             };
+            const items = order.order_items || [];
             return (
               <View key={order.id} style={styles.orderRow}>
                 <View style={[styles.orderDot, { backgroundColor: statusColors[order.status] || '#999' }]} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.orderCustomer}>{order.customerName || 'Customer'}</Text>
+                  <Text style={styles.orderCustomer}>{order.customer_name || 'Customer'}</Text>
                   <Text style={styles.orderItems} numberOfLines={1}>
-                    {order.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}
+                    {items.map(i => `${i.quantity}x ${i.name}`).join(', ') || 'Order items'}
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
@@ -103,11 +106,10 @@ export default function RestaurantDashboard() {
           })}
         </View>
 
-        {/* Quick Actions */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.actionsRow}>
-            <Pressable style={styles.actionCard}>
+            <Pressable style={styles.actionCard} onPress={() => router.push('/(restaurant)/menu')}>
               <MaterialIcons name="add-circle" size={28} color={theme.primary} />
               <Text style={styles.actionLabel}>Add Item</Text>
             </Pressable>

@@ -1,19 +1,22 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
+import { useAuth, useAlert } from '@/template';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, logout, customerOrders } = useApp();
+  const { userProfile, customerOrders } = useApp();
+  const { logout } = useAuth();
+  const { showAlert } = useAlert();
 
   const handleLogout = () => {
-    Alert.alert('Log Out', 'Are you sure you want to log out?', [
+    showAlert('Log Out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Log Out', style: 'destructive', onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); logout(); } },
+      { text: 'Log Out', style: 'destructive', onPress: async () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); await logout(); } },
     ]);
   };
 
@@ -30,30 +33,23 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
-      >
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}>
         <View style={styles.titleBar}>
           <Text style={styles.title}>Profile</Text>
         </View>
 
-        {/* User Card */}
         <View style={styles.userCard}>
           <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>{user?.name?.charAt(0)?.toUpperCase() || 'U'}</Text>
+            <Text style={styles.avatarText}>{userProfile?.username?.charAt(0)?.toUpperCase() || userProfile?.email?.charAt(0)?.toUpperCase() || 'U'}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.userName}>{user?.name || 'User'}</Text>
-            <Text style={styles.userEmail}>{user?.email || 'user@email.com'}</Text>
-            <Text style={styles.userPhone}>{user?.phone || '+234 800 000 0000'}</Text>
+            <Text style={styles.userName}>{userProfile?.username || 'User'}</Text>
+            <Text style={styles.userEmail}>{userProfile?.email || 'user@email.com'}</Text>
+            <Text style={styles.userPhone}>{userProfile?.phone || 'No phone set'}</Text>
           </View>
-          <Pressable style={styles.editBtn}>
-            <MaterialIcons name="edit" size={18} color={theme.primary} />
-          </Pressable>
+          <Pressable style={styles.editBtn}><MaterialIcons name="edit" size={18} color={theme.primary} /></Pressable>
         </View>
 
-        {/* Stats */}
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{customerOrders.length}</Text>
@@ -69,13 +65,10 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Menu */}
         <View style={styles.menuSection}>
           {menuItems.map((item, index) => (
             <Pressable key={index} style={styles.menuItem} onPress={() => Haptics.selectionAsync()}>
-              <View style={styles.menuIconWrap}>
-                <MaterialIcons name={item.icon as any} size={22} color={theme.primary} />
-              </View>
+              <View style={styles.menuIconWrap}><MaterialIcons name={item.icon as any} size={22} color={theme.primary} /></View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.menuLabel}>{item.label}</Text>
                 <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
@@ -85,7 +78,6 @@ export default function ProfileScreen() {
           ))}
         </View>
 
-        {/* Logout */}
         <Pressable onPress={handleLogout} style={styles.logoutBtn}>
           <MaterialIcons name="logout" size={20} color={theme.error} />
           <Text style={styles.logoutText}>Log Out</Text>

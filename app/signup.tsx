@@ -5,39 +5,53 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
-import { useApp } from '../contexts/AppContext';
+import { useAuth, useAlert } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
 
 export default function SignupScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { role } = useLocalSearchParams<{ role: string }>();
-  const { signup, loginWithGoogle } = useApp();
+  const { sendOTP, verifyOTPAndLogin, operationLoading } = useAuth();
+  const { showAlert } = useAlert();
   const userRole = (role as 'customer' | 'restaurant') || 'customer';
 
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [restaurantName, setRestaurantName] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [restaurantName, setRestaurantName] = useState('');
 
-  const handleSignup = () => {
-    setError('');
-    if (!name.trim()) { setError('Please enter your full name'); return; }
-    if (!email.trim() || !email.includes('@')) { setError('Please enter a valid email'); return; }
-    if (!phone.trim()) { setError('Please enter your phone number'); return; }
-    if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
-    if (userRole === 'restaurant' && !restaurantName.trim()) { setError('Please enter your restaurant name'); return; }
+  const handleSendOTP = async () => {
+    if (!email.trim() || !email.includes('@')) { showAlert('Error', 'Please enter a valid email'); return; }
+    if (password.length < 6) { showAlert('Error', 'Password must be at least 6 characters'); return; }
+    if (password !== confirmPassword) { showAlert('Error', 'Passwords do not match'); return; }
+    if (userRole === 'restaurant' && !restaurantName.trim()) { showAlert('Error', 'Please enter your restaurant name'); return; }
 
-    setLoading(true);
-    setTimeout(() => {
-      const success = signup({ name, email, phone, password, role: userRole, restaurantName: restaurantName || undefined });
-      setLoading(false);
-      if (success) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }, 600);
+    const { error } = await sendOTP(email);
+    if (error) {
+      showAlert('Error', error);
+    } else {
+      setOtpSent(true);
+      showAlert('Code Sent', 'A verification code has been sent to your email');
+    }
+  };
+
+  const handleVerifyOTP = async () => {
+    if (otp.length < 4) { showAlert('Error', 'Please enter the verification code'); return; }
+
+    const metadata: Record<string, string> = { role: userRole };
+    if (userRole === 'restaurant') metadata.restaurant_name = restaurantName;
+
+    const { error } = await verifyOTPAndLogin(email, otp, { password });
+    if (error) {
+      showAlert('Verification Failed', error);
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Root navigator handles redirect based on role
+    }
   };
 
   return (
@@ -63,84 +77,88 @@ export default function SignupScreen() {
                 {userRole === 'customer' ? 'Customer' : 'Restaurant'}
               </Text>
             </View>
-            <Text style={styles.title}>Create your account</Text>
+            <Text style={styles.title}>{otpSent ? 'Verify your email' : 'Create your account'}</Text>
             <Text style={styles.subtitle}>
-              {userRole === 'customer' ? 'Start ordering delicious meals' : 'Partner with SwiftChop to grow your business'}
+              {otpSent
+                ? `Enter the 4-digit code sent to ${email}`
+                : userRole === 'customer' ? 'Start ordering delicious meals' : 'Partner with SwiftChop to grow your business'}
             </Text>
           </View>
 
-          <PrimaryButton
-            label="Continue with Google"
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); loginWithGoogle(userRole); }}
-            variant="google"
-            icon={<Ionicons name="logo-google" size={20} color="#EA4335" />}
-          />
+          {!otpSent ? (
+            <>
+              {/* Restaurant name */}
+              {userRole === 'restaurant' && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Restaurant name</Text>
+                  <View style={styles.inputWrap}>
+                    <MaterialIcons name="storefront" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+                    <TextInput style={styles.input} placeholder="e.g. Mama's Kitchen" placeholderTextColor={theme.textMuted} value={restaurantName} onChangeText={setRestaurantName} />
+                  </View>
+                </View>
+              )}
 
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or sign up with email</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          {error ? (
-            <View style={styles.errorBox}>
-              <MaterialIcons name="error-outline" size={16} color={theme.error} />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          ) : null}
-
-          {/* Full Name */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Full name</Text>
-            <View style={styles.inputWrap}>
-              <MaterialIcons name="person" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-              <TextInput style={styles.input} placeholder="e.g. Adaeze Okonkwo" placeholderTextColor={theme.textMuted} value={name} onChangeText={setName} autoCapitalize="words" />
-            </View>
-          </View>
-
-          {/* Restaurant name */}
-          {userRole === 'restaurant' && (
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Restaurant name</Text>
-              <View style={styles.inputWrap}>
-                <MaterialIcons name="storefront" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-                <TextInput style={styles.input} placeholder="e.g. Mama's Kitchen" placeholderTextColor={theme.textMuted} value={restaurantName} onChangeText={setRestaurantName} />
+              {/* Email */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email address</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialIcons name="email" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+                  <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={theme.textMuted} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+                </View>
               </View>
-            </View>
-          )}
 
-          {/* Email */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Email address</Text>
-            <View style={styles.inputWrap}>
-              <MaterialIcons name="email" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-              <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={theme.textMuted} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-            </View>
-          </View>
+              {/* Password */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Password</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialIcons name="lock" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Min. 6 characters" placeholderTextColor={theme.textMuted} value={password} onChangeText={setPassword} secureTextEntry={!showPassword} />
+                  <Pressable onPress={() => setShowPassword(!showPassword)}>
+                    <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textMuted} />
+                  </Pressable>
+                </View>
+              </View>
 
-          {/* Phone */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Phone number</Text>
-            <View style={styles.inputWrap}>
-              <MaterialIcons name="phone" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-              <TextInput style={styles.input} placeholder="+234 800 000 0000" placeholderTextColor={theme.textMuted} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-            </View>
-          </View>
+              {/* Confirm Password */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Confirm Password</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialIcons name="lock" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Re-enter password" placeholderTextColor={theme.textMuted} value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry={!showPassword} />
+                </View>
+              </View>
 
-          {/* Password */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Password</Text>
-            <View style={styles.inputWrap}>
-              <MaterialIcons name="lock" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
-              <TextInput style={[styles.input, { flex: 1 }]} placeholder="Min. 6 characters" placeholderTextColor={theme.textMuted} value={password} onChangeText={setPassword} secureTextEntry={!showPassword} />
-              <Pressable onPress={() => setShowPassword(!showPassword)}>
-                <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color={theme.textMuted} />
+              <View style={{ height: 8 }} />
+              <PrimaryButton label="Send Verification Code" onPress={handleSendOTP} loading={operationLoading} variant="dark" />
+            </>
+          ) : (
+            <>
+              {/* OTP Input */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Verification Code</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialIcons name="pin" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+                  <TextInput
+                    style={[styles.input, { letterSpacing: 8, fontSize: 22, fontWeight: '700', textAlign: 'center' }]}
+                    placeholder="0000"
+                    placeholderTextColor={theme.textMuted}
+                    value={otp}
+                    onChangeText={setOtp}
+                    keyboardType="number-pad"
+                    maxLength={4}
+                    autoFocus
+                  />
+                </View>
+              </View>
+
+              <View style={{ height: 8 }} />
+              <PrimaryButton label="Verify & Create Account" onPress={handleVerifyOTP} loading={operationLoading} variant="dark" />
+
+              <Pressable onPress={() => { setOtpSent(false); setOtp(''); }} style={{ marginTop: 16, alignSelf: 'center' }}>
+                <Text style={{ fontSize: 14, color: theme.primary, fontWeight: '600' }}>Resend Code</Text>
               </Pressable>
-            </View>
-          </View>
-
-          <View style={{ height: 8 }} />
-          <PrimaryButton label="Create Account" onPress={handleSignup} loading={loading} variant="dark" />
+            </>
+          )}
 
           <Pressable onPress={() => router.push({ pathname: '/login', params: { role: userRole } })} style={{ marginTop: 20, alignSelf: 'center' }}>
             <Text style={styles.switchText}>Already have an account? <Text style={{ color: theme.primary, fontWeight: '600' }}>Log in</Text></Text>
@@ -159,12 +177,7 @@ const styles = StyleSheet.create({
   roleBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginBottom: 16, gap: 6 },
   roleText: { fontSize: 13, fontWeight: '600' },
   title: { fontSize: 28, fontWeight: '700', color: theme.textPrimary, marginBottom: 6 },
-  subtitle: { fontSize: 15, color: theme.textSecondary },
-  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 24, gap: 12 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: theme.border },
-  dividerText: { fontSize: 13, color: theme.textMuted },
-  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.errorLight, padding: 12, borderRadius: 10, marginBottom: 16 },
-  errorText: { fontSize: 13, color: theme.error, flex: 1 },
+  subtitle: { fontSize: 15, color: theme.textSecondary, lineHeight: 22 },
   inputGroup: { marginBottom: 16 },
   inputLabel: { fontSize: 14, fontWeight: '600', color: theme.textPrimary, marginBottom: 8 },
   inputWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, height: 52, backgroundColor: theme.backgroundSecondary },

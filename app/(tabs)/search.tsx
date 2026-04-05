@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,24 +7,34 @@ import { FlashList } from '@shopify/flash-list';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../../constants/theme';
-import { restaurants } from '../../services/mockData';
+import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
+import { DbMenuItem, fetchAllMenuItems } from '../../services/supabaseData';
 
 export default function SearchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { restaurants } = useApp();
   const [query, setQuery] = useState('');
+  const [allMenuItems, setAllMenuItems] = useState<DbMenuItem[]>([]);
+
+  useEffect(() => {
+    fetchAllMenuItems().then(({ data }) => setAllMenuItems(data));
+  }, []);
 
   const allItems = useMemo(() => {
     const items: { type: 'restaurant' | 'dish'; id: string; name: string; subtitle: string; imageKey: string; restaurantId: string; price?: number }[] = [];
     restaurants.forEach(r => {
-      items.push({ type: 'restaurant', id: r.id, name: r.name, subtitle: `${r.cuisine} · ${r.rating} ★`, imageKey: r.imageKey, restaurantId: r.id });
-      r.categories.forEach(c => c.items.forEach(item => {
-        items.push({ type: 'dish', id: item.id, name: item.name, subtitle: `${r.name} · ₦${item.price.toLocaleString()}`, imageKey: item.imageKey, restaurantId: r.id, price: item.price });
-      }));
+      items.push({ type: 'restaurant', id: r.id, name: r.name, subtitle: `${r.cuisine} · ${r.rating} ★`, imageKey: r.image_key, restaurantId: r.id });
+    });
+    allMenuItems.forEach(item => {
+      const rest = restaurants.find(r => r.id === item.restaurant_id);
+      if (rest) {
+        items.push({ type: 'dish', id: item.id, name: item.name, subtitle: `${rest.name} · ₦${item.price.toLocaleString()}`, imageKey: item.image_key, restaurantId: rest.id, price: item.price });
+      }
     });
     return items;
-  }, []);
+  }, [restaurants, allMenuItems]);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return [];
@@ -36,7 +46,6 @@ export default function SearchScreen() {
 
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
-      {/* Search Header */}
       <View style={styles.searchHeader}>
         <View style={styles.searchBar}>
           <MaterialIcons name="search" size={22} color={theme.textMuted} />
@@ -48,15 +57,14 @@ export default function SearchScreen() {
             onChangeText={setQuery}
             autoFocus
           />
-          {query.length > 0 && (
+          {query.length > 0 ? (
             <Pressable onPress={() => setQuery('')}>
               <MaterialIcons name="close" size={20} color={theme.textMuted} />
             </Pressable>
-          )}
+          ) : null}
         </View>
       </View>
 
-      {/* Results */}
       <View style={{ flex: 1 }}>
         {query.trim() ? (
           <FlashList
@@ -64,9 +72,7 @@ export default function SearchScreen() {
             keyExtractor={(item) => `${item.type}-${item.id}`}
             estimatedItemSize={72}
             contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 16 }}
-            ListHeaderComponent={
-              <Text style={styles.resultCount}>{filtered.length} result{filtered.length !== 1 ? 's' : ''}</Text>
-            }
+            ListHeaderComponent={<Text style={styles.resultCount}>{filtered.length} result{filtered.length !== 1 ? 's' : ''}</Text>}
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <MaterialIcons name="search-off" size={48} color={theme.textMuted} />
@@ -98,9 +104,7 @@ export default function SearchScreen() {
             keyExtractor={(item) => item.id}
             estimatedItemSize={72}
             contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 16 }}
-            ListHeaderComponent={
-              <Text style={styles.sectionTitle}>Popular Dishes</Text>
-            }
+            ListHeaderComponent={<Text style={styles.sectionTitle}>Popular Dishes</Text>}
             renderItem={({ item }) => (
               <Pressable
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/restaurant/${item.restaurantId}`); }}

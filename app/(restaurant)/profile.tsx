@@ -1,19 +1,24 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
+import { useAuth, useAlert } from '@/template';
 
 export default function RestaurantProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, logout } = useApp();
+  const router = useRouter();
+  const { userProfile, ownerRestaurant } = useApp();
+  const { logout } = useAuth();
+  const { showAlert } = useAlert();
 
   const handleLogout = () => {
-    Alert.alert('Log Out', 'Are you sure?', [
+    showAlert('Log Out', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Log Out', style: 'destructive', onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); logout(); } },
+      { text: 'Log Out', style: 'destructive', onPress: async () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); await logout(); } },
     ]);
   };
 
@@ -21,48 +26,40 @@ export default function RestaurantProfileScreen() {
     {
       title: 'RESTAURANT',
       items: [
-        { icon: 'storefront', label: 'Restaurant Info', sub: 'Name, address, cuisine type' },
-        { icon: 'schedule', label: 'Operating Hours', sub: 'Set your open/close times' },
-        { icon: 'delivery-dining', label: 'Delivery Settings', sub: 'Fees, radius, minimum order' },
-        { icon: 'photo-camera', label: 'Photos', sub: 'Cover image, gallery' },
+        { icon: 'storefront', label: 'Restaurant Info', sub: ownerRestaurant?.name || 'Name, address, cuisine type', route: '' },
+        { icon: 'schedule', label: 'Operating Hours', sub: 'Set your open/close times', route: '' },
+        { icon: 'delivery-dining', label: 'Delivery Settings', sub: 'Fees, radius, minimum order', route: '' },
+        { icon: 'photo-camera', label: 'Photos', sub: 'Cover image, gallery', route: '' },
       ],
     },
     {
       title: 'ACCOUNT',
       items: [
-        { icon: 'person', label: 'Account Details', sub: user?.email || '' },
-        { icon: 'account-balance', label: 'Bank Details', sub: 'Payment withdrawal settings' },
-        { icon: 'notifications', label: 'Notifications', sub: 'Order alerts, promotions' },
+        { icon: 'person', label: 'Account Details', sub: userProfile?.email || '', route: '/restaurant-account' },
+        { icon: 'account-balance', label: 'Bank Details', sub: 'Payment withdrawal settings', route: '/restaurant-account' },
+        { icon: 'notifications', label: 'Notifications', sub: 'Order alerts, promotions', route: '/restaurant-account' },
       ],
     },
     {
       title: 'SUPPORT',
       items: [
-        { icon: 'help', label: 'Help Centre', sub: 'FAQ and guides' },
-        { icon: 'chat', label: 'Contact Support', sub: 'Chat with our team' },
-        { icon: 'description', label: 'Terms & Policies', sub: 'Legal information' },
+        { icon: 'help', label: 'Help Centre', sub: 'FAQ and guides', route: '/restaurant-support' },
+        { icon: 'chat', label: 'Contact Support', sub: 'Chat with our team', route: '/restaurant-support' },
+        { icon: 'description', label: 'Terms & Policies', sub: 'Legal information', route: '/restaurant-support' },
       ],
     },
   ];
 
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
-      >
-        <View style={styles.titleBar}>
-          <Text style={styles.title}>Settings</Text>
-        </View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}>
+        <View style={styles.titleBar}><Text style={styles.title}>Settings</Text></View>
 
-        {/* Restaurant Profile */}
         <View style={styles.profileCard}>
-          <View style={styles.avatarCircle}>
-            <MaterialIcons name="storefront" size={28} color="#FFF" />
-          </View>
+          <View style={styles.avatarCircle}><MaterialIcons name="storefront" size={28} color="#FFF" /></View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.profileName}>{user?.restaurantName || 'My Restaurant'}</Text>
-            <Text style={styles.profileEmail}>{user?.email}</Text>
+            <Text style={styles.profileName}>{ownerRestaurant?.name || userProfile?.restaurant_name || 'My Restaurant'}</Text>
+            <Text style={styles.profileEmail}>{userProfile?.email}</Text>
             <View style={styles.verifiedBadge}>
               <MaterialIcons name="verified" size={14} color="#10B981" />
               <Text style={styles.verifiedText}>Verified Partner</Text>
@@ -70,12 +67,18 @@ export default function RestaurantProfileScreen() {
           </View>
         </View>
 
-        {/* Settings Groups */}
         {settingsSections.map((section, sIdx) => (
           <View key={sIdx} style={styles.section}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
             {section.items.map((item, iIdx) => (
-              <Pressable key={iIdx} style={styles.settingRow} onPress={() => Haptics.selectionAsync()}>
+              <Pressable
+                key={iIdx}
+                style={styles.settingRow}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  if (item.route) router.push(item.route as any);
+                }}
+              >
                 <View style={styles.settingIconWrap}>
                   <MaterialIcons name={item.icon as any} size={20} color={theme.primary} />
                 </View>
@@ -89,10 +92,8 @@ export default function RestaurantProfileScreen() {
           </View>
         ))}
 
-        {/* Version */}
         <Text style={styles.version}>SwiftChop Restaurant v1.0.0</Text>
 
-        {/* Logout */}
         <Pressable onPress={handleLogout} style={styles.logoutBtn}>
           <MaterialIcons name="logout" size={20} color="#EF4444" />
           <Text style={styles.logoutText}>Log Out</Text>

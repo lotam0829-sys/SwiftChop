@@ -1,14 +1,20 @@
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { AlertProvider, AuthProvider, useAuth } from '@/template';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider, useApp } from '../contexts/AppContext';
 import { View, ActivityIndicator } from 'react-native';
 import { theme } from '../constants/theme';
 
 function RootNavigator() {
-  const { isLoading, isAuthenticated, user } = useApp();
+  const { user, loading: authLoading } = useAuth();
+  const { userProfile } = useApp();
   const segments = useSegments();
   const router = useRouter();
+
+  const isAuthenticated = !!user;
+  const isLoading = authLoading;
 
   useEffect(() => {
     if (isLoading) return;
@@ -23,18 +29,18 @@ function RootNavigator() {
     }
 
     if (isAuthenticated && isAuthScreen) {
-      if (user?.role === 'customer') {
+      if (userProfile?.role === 'restaurant') {
+        router.replace(userProfile.is_approved ? '/(restaurant)' : '/pending-approval');
+      } else {
         router.replace('/(tabs)');
-      } else if (user?.role === 'restaurant') {
-        router.replace(user.isApproved ? '/(restaurant)' : '/pending-approval');
       }
       return;
     }
 
-    if (isAuthenticated && isPending && user?.role === 'restaurant' && user.isApproved) {
+    if (isAuthenticated && isPending && userProfile?.role === 'restaurant' && userProfile.is_approved) {
       router.replace('/(restaurant)');
     }
-  }, [isLoading, isAuthenticated, user?.isApproved, segments]);
+  }, [isLoading, isAuthenticated, userProfile?.is_approved, userProfile?.role, segments]);
 
   if (isLoading) {
     return (
@@ -58,6 +64,8 @@ function RootNavigator() {
         <Stack.Screen name="checkout" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="order-tracking" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="pending-approval" />
+        <Stack.Screen name="restaurant-account" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Account Settings', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-support" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Help & Support', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
       </Stack>
     </>
   );
@@ -65,8 +73,14 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <AppProvider>
-      <RootNavigator />
-    </AppProvider>
+    <AlertProvider>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <AppProvider>
+            <RootNavigator />
+          </AppProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </AlertProvider>
   );
 }
