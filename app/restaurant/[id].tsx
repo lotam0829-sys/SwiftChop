@@ -10,16 +10,18 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
-import { DbMenuItem, DbRestaurant, DbReview, fetchRestaurantById, fetchMenuItems, fetchRestaurantReviews, fetchUserProfile } from '../../services/supabaseData';
+import { DbMenuItem, DbRestaurant, DbReview, fetchRestaurantById, fetchMenuItems, fetchRestaurantReviews, fetchUserProfile, fetchCustomerOrders, fetchReviewByOrderId } from '../../services/supabaseData';
 import { getCuisineColor, parseCuisines } from '../../constants/config';
 import { useRestaurantHours } from '../../hooks/useRestaurantHours';
+import { useAuth } from '@/template';
 import { scheduleRestaurantReminder, cancelRestaurantReminder } from '../../services/notificationScheduler';
 
 export default function RestaurantDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { addToCart, cart, cartCount, cartTotal, userLocation, isFavorite, toggleFavorite } = useApp();
+  const { addToCart, cart, cartCount, cartTotal, userLocation, isFavorite, toggleFavorite, customerOrders } = useApp();
+  const { user } = useAuth();
 
   const [restaurant, setRestaurant] = useState<DbRestaurant | null>(null);
   const [menuItems, setMenuItems] = useState<DbMenuItem[]>([]);
@@ -33,6 +35,7 @@ export default function RestaurantDetailScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [ownerPhone, setOwnerPhone] = useState<string | null>(null);
   const [menuSearch, setMenuSearch] = useState('');
+  const [reviewableOrderId, setReviewableOrderId] = useState<string | null>(null);
   const visitedRef = useRef(false);
 
   const { isCurrentlyOpen, closingSoon, closingSoonLabel, formattedHours, hours } = useRestaurantHours(
@@ -78,8 +81,10 @@ export default function RestaurantDetailScreen() {
       setReviews(reviewsResult.data);
       setLoading(false);
 
-      // Fetch restaurant owner phone number
-      if (restResult.data?.owner_id) {
+      // Fetch restaurant phone: try restaurant.phone field first, then owner profile
+      if ((restResult.data as any)?.phone) {
+        setOwnerPhone((restResult.data as any).phone);
+      } else if (restResult.data?.owner_id) {
         fetchUserProfile(restResult.data.owner_id).then(({ data: profile }) => {
           if (profile?.phone) setOwnerPhone(profile.phone);
         });
@@ -94,6 +99,30 @@ export default function RestaurantDetailScreen() {
       }
     };
   }, [restaurant?.name]);
+
+  // Find a reviewable order for this restaurant (delivered, not yet reviewed)
+  useEffect(() => {
+    if (!user?.id || !id) return;
+    const deliveredOrders = customerOrders.filter(
+      o => o.restaurant_id === id && o.status === 'delivered'
+    );
+    if (deliveredOrders.length === 0) {
+      setReviewableOrderId(null);
+      return;
+    }
+    // Check each delivered order to find one without a review
+    const checkOrders = async () => {
+      for (const order of deliveredOrders) {
+        const { data: existingReview } = await fetchReviewByOrderId(order.id);
+        if (!existingReview) {
+          setReviewableOrderId(order.id);
+          return;
+        }
+      }
+      setReviewableOrderId(null);
+    };
+    checkOrders();
+  }, [user?.id, id, customerOrders]);
 
   useEffect(() => {
     if (categories.length > 0 && !activeCategory) {
@@ -398,6 +427,27 @@ export default function RestaurantDetailScreen() {
                 })}
               </View>
             </View>
+            {/* Write a Review button */}
+            {reviewableOrderId ? (
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  router.push({
+                    pathname: '/review',
+                    params: {
+                      orderId: reviewableOrderId,
+                      restaurantId: id,
+                      restaurantName: restaurant.name,
+                    },
+                  });
+                }}
+                style={styles.writeReviewBtn}
+              >
+                <MaterialIcons name="rate-review" size={18} color="#FFF" />
+                <Text style={styles.writeReviewText}>Write a Review</Text>
+              </Pressable>
+            ) : null}
+
             {reviews.length > 0 ? (
               <View style={styles.reviewsList}>
                 {reviews.slice(0, 10).map((review) => {
@@ -745,6 +795,8 @@ const styles = StyleSheet.create({
   bogoBannerTitle: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   bogoBannerSub: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
 
+  writeReviewBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.primary, marginBottom: 16 },
+  writeReviewText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   showReviewsBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginHorizontal: 16, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.primaryFaint, marginBottom: 16 },
   showReviewsBtnText: { fontSize: 14, fontWeight: '600', color: theme.primary },
   reviewsSection: { paddingHorizontal: 16, marginBottom: 16 },

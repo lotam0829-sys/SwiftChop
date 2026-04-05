@@ -149,7 +149,7 @@ export async function fetchRestaurants(): Promise<{ data: DbRestaurant[]; error:
   return { data: data || [], error: null };
 }
 
-export async function fetchRestaurantById(id: string): Promise<{ data: DbRestaurant | null; error: string | null }> {
+export async function fetchRestaurantById(id: string): Promise<{ data: (DbRestaurant & { phone?: string }) | null; error: string | null }> {
   const { data, error } = await supabase
     .from('restaurants')
     .select('*')
