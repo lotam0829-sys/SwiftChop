@@ -9,7 +9,7 @@ import * as Haptics from 'expo-haptics';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
-import { DbMenuItem, DbRestaurant, fetchRestaurantById, fetchMenuItems } from '../../services/supabaseData';
+import { DbMenuItem, DbRestaurant, DbReview, fetchRestaurantById, fetchMenuItems, fetchRestaurantReviews } from '../../services/supabaseData';
 
 export default function RestaurantDetailScreen() {
   const router = useRouter();
@@ -19,7 +19,9 @@ export default function RestaurantDetailScreen() {
 
   const [restaurant, setRestaurant] = useState<DbRestaurant | null>(null);
   const [menuItems, setMenuItems] = useState<DbMenuItem[]>([]);
+  const [reviews, setReviews] = useState<DbReview[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showReviews, setShowReviews] = useState(false);
 
   const categories = useMemo(() => {
     const cats: { id: string; name: string; items: DbMenuItem[] }[] = [];
@@ -45,9 +47,11 @@ export default function RestaurantDetailScreen() {
     Promise.all([
       fetchRestaurantById(id),
       fetchMenuItems(id),
-    ]).then(([restResult, menuResult]) => {
+      fetchRestaurantReviews(id),
+    ]).then(([restResult, menuResult, reviewsResult]) => {
       setRestaurant(restResult.data);
       setMenuItems(menuResult.data);
+      setReviews(reviewsResult.data);
       setLoading(false);
     });
   }, [id]);
@@ -96,6 +100,18 @@ export default function RestaurantDetailScreen() {
     return getImage(imageKey);
   };
 
+  // Rating distribution
+  const ratingDistribution = useMemo(() => {
+    const dist = [0, 0, 0, 0, 0];
+    reviews.forEach(r => { if (r.rating >= 1 && r.rating <= 5) dist[r.rating - 1]++; });
+    return dist;
+  }, [reviews]);
+
+  const avgRating = useMemo(() => {
+    if (reviews.length === 0) return restaurant?.rating || 0;
+    return reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
+  }, [reviews, restaurant]);
+
   if (loading) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' }}><ActivityIndicator size="large" color={theme.primary} /></View>;
   }
@@ -126,11 +142,11 @@ export default function RestaurantDetailScreen() {
         </View>
 
         <View style={styles.infoRow}>
-          <View style={styles.infoItem}>
+          <Pressable onPress={() => { Haptics.selectionAsync(); setShowReviews(!showReviews); }} style={styles.infoItem}>
             <MaterialIcons name="star" size={18} color="#FCD34D" />
-            <Text style={styles.infoValue}>{restaurant.rating}</Text>
-            <Text style={styles.infoLabel}>({restaurant.review_count})</Text>
-          </View>
+            <Text style={styles.infoValue}>{avgRating.toFixed(1)}</Text>
+            <Text style={styles.infoLabel}>({reviews.length || restaurant.review_count})</Text>
+          </Pressable>
           <View style={styles.infoDivider} />
           <View style={styles.infoItem}>
             <MaterialIcons name="access-time" size={18} color={theme.textMuted} />
@@ -160,6 +176,92 @@ export default function RestaurantDetailScreen() {
         ) : null}
 
         <Text style={styles.description}>{restaurant.description}</Text>
+
+        {/* Reviews Section (collapsible) */}
+        {showReviews ? (
+          <View style={styles.reviewsSection}>
+            <View style={styles.reviewsHeader}>
+              <Text style={styles.reviewsSectionTitle}>Reviews ({reviews.length})</Text>
+              <Pressable onPress={() => setShowReviews(false)}>
+                <MaterialIcons name="keyboard-arrow-up" size={24} color={theme.textMuted} />
+              </Pressable>
+            </View>
+
+            {/* Rating summary */}
+            <View style={styles.ratingSummary}>
+              <View style={styles.ratingSummaryLeft}>
+                <Text style={styles.ratingBig}>{avgRating.toFixed(1)}</Text>
+                <View style={styles.ratingStarsRow}>
+                  {[1, 2, 3, 4, 5].map(s => (
+                    <MaterialIcons key={s} name={s <= Math.round(avgRating) ? 'star' : 'star-border'} size={16} color="#FCD34D" />
+                  ))}
+                </View>
+                <Text style={styles.ratingCountText}>{reviews.length} reviews</Text>
+              </View>
+              <View style={styles.ratingSummaryRight}>
+                {[5, 4, 3, 2, 1].map(star => {
+                  const count = ratingDistribution[star - 1];
+                  const pct = reviews.length > 0 ? (count / reviews.length) * 100 : 0;
+                  return (
+                    <View key={star} style={styles.ratingBarRow}>
+                      <Text style={styles.ratingBarLabel}>{star}</Text>
+                      <MaterialIcons name="star" size={12} color="#FCD34D" />
+                      <View style={styles.ratingBarBg}>
+                        <View style={[styles.ratingBarFill, { width: `${pct}%` }]} />
+                      </View>
+                      <Text style={styles.ratingBarCount}>{count}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Individual reviews */}
+            {reviews.length > 0 ? (
+              <View style={styles.reviewsList}>
+                {reviews.slice(0, 10).map((review) => {
+                  const date = new Date(review.created_at);
+                  const dateStr = date.toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' });
+                  return (
+                    <View key={review.id} style={styles.reviewCard}>
+                      <View style={styles.reviewCardHeader}>
+                        <View style={styles.reviewAvatar}>
+                          <Text style={styles.reviewAvatarText}>
+                            {(review.customer_name || 'C').charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.reviewerName}>{review.customer_name || 'Customer'}</Text>
+                          <Text style={styles.reviewDate}>{dateStr}</Text>
+                        </View>
+                        <View style={styles.reviewRatingBadge}>
+                          <MaterialIcons name="star" size={14} color="#FCD34D" />
+                          <Text style={styles.reviewRatingText}>{review.rating}</Text>
+                        </View>
+                      </View>
+                      {review.review_text ? (
+                        <Text style={styles.reviewText}>{review.review_text}</Text>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={styles.noReviews}>
+                <MaterialIcons name="rate-review" size={32} color={theme.textMuted} />
+                <Text style={styles.noReviewsText}>No reviews yet. Be the first to review!</Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <Pressable onPress={() => { Haptics.selectionAsync(); setShowReviews(true); }} style={styles.showReviewsBtn}>
+            <MaterialIcons name="star" size={18} color={theme.primary} />
+            <Text style={styles.showReviewsBtnText}>
+              {reviews.length > 0 ? `See ${reviews.length} reviews` : 'No reviews yet'}
+            </Text>
+            <MaterialIcons name="keyboard-arrow-down" size={20} color={theme.primary} />
+          </Pressable>
+        )}
 
         {categories.length > 0 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRow}>
@@ -236,7 +338,38 @@ const styles = StyleSheet.create({
   infoDivider: { width: 1, height: 20, backgroundColor: theme.border },
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, marginBottom: 8 },
   locationText: { fontSize: 13, color: theme.textSecondary },
-  description: { fontSize: 14, color: theme.textSecondary, lineHeight: 20, paddingHorizontal: 16, marginBottom: 16 },
+  description: { fontSize: 14, color: theme.textSecondary, lineHeight: 20, paddingHorizontal: 16, marginBottom: 12 },
+
+  // Reviews section
+  showReviewsBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginHorizontal: 16, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.primaryFaint, marginBottom: 16 },
+  showReviewsBtnText: { fontSize: 14, fontWeight: '600', color: theme.primary },
+  reviewsSection: { paddingHorizontal: 16, marginBottom: 16 },
+  reviewsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  reviewsSectionTitle: { fontSize: 18, fontWeight: '700', color: theme.textPrimary },
+  ratingSummary: { flexDirection: 'row', gap: 20, marginBottom: 16, padding: 16, borderRadius: 14, backgroundColor: theme.backgroundSecondary },
+  ratingSummaryLeft: { alignItems: 'center', justifyContent: 'center', minWidth: 80 },
+  ratingBig: { fontSize: 36, fontWeight: '700', color: theme.textPrimary },
+  ratingStarsRow: { flexDirection: 'row', marginTop: 4 },
+  ratingCountText: { fontSize: 12, color: theme.textMuted, marginTop: 4 },
+  ratingSummaryRight: { flex: 1, gap: 4, justifyContent: 'center' },
+  ratingBarRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  ratingBarLabel: { fontSize: 12, fontWeight: '600', color: theme.textSecondary, width: 12, textAlign: 'right' },
+  ratingBarBg: { flex: 1, height: 6, borderRadius: 3, backgroundColor: theme.border, overflow: 'hidden' },
+  ratingBarFill: { height: '100%', borderRadius: 3, backgroundColor: '#FCD34D' },
+  ratingBarCount: { fontSize: 11, color: theme.textMuted, width: 20, textAlign: 'right' },
+  reviewsList: { gap: 12 },
+  reviewCard: { padding: 14, borderRadius: 12, backgroundColor: theme.backgroundSecondary, borderWidth: 1, borderColor: theme.borderLight },
+  reviewCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  reviewAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center' },
+  reviewAvatarText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
+  reviewerName: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
+  reviewDate: { fontSize: 11, color: theme.textMuted, marginTop: 1 },
+  reviewRatingBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#FFF9E6' },
+  reviewRatingText: { fontSize: 13, fontWeight: '700', color: '#92400E' },
+  reviewText: { fontSize: 14, color: theme.textSecondary, lineHeight: 20 },
+  noReviews: { alignItems: 'center', paddingVertical: 24 },
+  noReviewsText: { fontSize: 14, color: theme.textMuted, marginTop: 8 },
+
   tabsRow: { paddingHorizontal: 16, gap: 8, marginBottom: 8 },
   tab: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 24, backgroundColor: theme.backgroundSecondary },
   tabActive: { backgroundColor: theme.primary },

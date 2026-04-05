@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import React, { useState, useMemo, useCallback } from 'react';
+import { View, Text, StyleSheet, Pressable, TextInput } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -14,6 +14,7 @@ const statusTabs = [
   { key: 'confirmed', label: 'Confirmed' },
   { key: 'preparing', label: 'Preparing' },
   { key: 'delivered', label: 'Completed' },
+  { key: 'cancelled', label: 'Cancelled' },
 ];
 
 const statusConfig: Record<string, { color: string; bg: string; label: string; next?: string; nextLabel?: string }> = {
@@ -27,16 +28,53 @@ const statusConfig: Record<string, { color: string; bg: string; label: string; n
 
 export default function RestaurantOrdersScreen() {
   const insets = useSafeAreaInsets();
-  const { restaurantOrders, updateOrderStatus } = useApp();
+  const { restaurantOrders, updateOrderStatus, refreshRestaurantData } = useApp();
   const [activeTab, setActiveTab] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const filtered = activeTab === 'all'
-    ? restaurantOrders
-    : restaurantOrders.filter(o => o.status === activeTab);
+  const filtered = useMemo(() => {
+    let orders = restaurantOrders;
+
+    // Status filter
+    if (activeTab !== 'all') {
+      orders = orders.filter(o => o.status === activeTab);
+    }
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      orders = orders.filter(o =>
+        (o.customer_name || '').toLowerCase().includes(q) ||
+        o.order_number.toLowerCase().includes(q) ||
+        o.delivery_address.toLowerCase().includes(q) ||
+        (o.order_items || []).some(i => i.name.toLowerCase().includes(q))
+      );
+    }
+
+    return orders;
+  }, [restaurantOrders, activeTab, searchQuery]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshRestaurantData();
+    setRefreshing(false);
+  }, [refreshRestaurantData]);
+
+  const todayOrders = useMemo(() => {
+    const today = new Date().toDateString();
+    return restaurantOrders.filter(o => new Date(o.created_at).toDateString() === today);
+  }, [restaurantOrders]);
+
+  const todayRevenue = useMemo(() => {
+    return todayOrders.filter(o => o.status === 'delivered').reduce((sum, o) => sum + o.total, 0);
+  }, [todayOrders]);
 
   const renderOrder = ({ item }: { item: DbOrder }) => {
     const config = statusConfig[item.status] || statusConfig.pending;
     const time = new Date(item.created_at);
+    const dateStr = time.toLocaleDateString('en-NG', { day: 'numeric', month: 'short' });
     const timeStr = time.toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' });
     const items = item.order_items || [];
 
@@ -51,15 +89,18 @@ export default function RestaurantOrdersScreen() {
               </View>
             </View>
             <Text style={styles.customerName}>{item.customer_name || 'Customer'}</Text>
-            <Text style={styles.orderTime}>{timeStr}</Text>
+            <Text style={styles.orderTime}>{dateStr} {"\u00B7"} {timeStr}</Text>
           </View>
-          <Text style={styles.orderTotal}>₦{item.total.toLocaleString()}</Text>
+          <Text style={styles.orderTotal}>{"\u20A6"}{item.total.toLocaleString()}</Text>
         </View>
 
         <View style={styles.itemsList}>
-          {items.map((i, idx) => (
+          {items.slice(0, 4).map((i, idx) => (
             <Text key={idx} style={styles.itemText}>{i.quantity}x {i.name}</Text>
           ))}
+          {items.length > 4 ? (
+            <Text style={styles.moreItems}>+{items.length - 4} more</Text>
+          ) : null}
         </View>
 
         <View style={styles.addressRow}>
@@ -92,9 +133,34 @@ export default function RestaurantOrdersScreen() {
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
       <View style={styles.titleBar}>
-        <Text style={styles.title}>Orders</Text>
-        <Text style={styles.count}>{restaurantOrders.length} total</Text>
+        <View>
+          <Text style={styles.title}>Orders</Text>
+          <Text style={styles.count}>{restaurantOrders.length} total {"\u00B7"} {todayOrders.length} today {"\u00B7"} {"\u20A6"}{todayRevenue.toLocaleString()} revenue</Text>
+        </View>
+        <Pressable onPress={() => { Haptics.selectionAsync(); setShowSearch(!showSearch); }} style={styles.searchToggle}>
+          <MaterialIcons name={showSearch ? 'close' : 'search'} size={22} color="#FFF" />
+        </Pressable>
       </View>
+
+      {/* Search bar */}
+      {showSearch ? (
+        <View style={styles.searchBar}>
+          <MaterialIcons name="search" size={20} color="#999" />
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search by customer, order #, or item..."
+            placeholderTextColor="#666"
+            autoFocus
+          />
+          {searchQuery.length > 0 ? (
+            <Pressable onPress={() => setSearchQuery('')}>
+              <MaterialIcons name="close" size={18} color="#999" />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={styles.tabsContainer}>
         {statusTabs.map((tab) => {
@@ -119,11 +185,22 @@ export default function RestaurantOrdersScreen() {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 16 }}
         renderItem={renderOrder}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <MaterialIcons name="inbox" size={48} color="#555" />
-            <Text style={styles.emptyTitle}>No orders</Text>
-            <Text style={styles.emptySubtitle}>Orders will appear here when customers place them</Text>
+            <Text style={styles.emptyTitle}>
+              {searchQuery ? 'No matching orders' : 'No orders'}
+            </Text>
+            <Text style={styles.emptySubtitle}>
+              {searchQuery ? `No results for "${searchQuery}"` : 'Orders will appear here when customers place them'}
+            </Text>
+            {searchQuery ? (
+              <Pressable onPress={() => { setSearchQuery(''); setActiveTab('all'); }} style={styles.clearBtn}>
+                <Text style={styles.clearBtnText}>Clear Filters</Text>
+              </Pressable>
+            ) : null}
           </View>
         }
       />
@@ -135,8 +212,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0D0D0D' },
   titleBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
   title: { fontSize: 28, fontWeight: '700', color: '#FFF' },
-  count: { fontSize: 14, color: '#999' },
-  tabsContainer: { flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 14, gap: 6 },
+  count: { fontSize: 12, color: '#999', marginTop: 4 },
+  searchToggle: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center' },
+  searchBar: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, height: 46, borderRadius: 12, backgroundColor: '#1A1A1A', paddingHorizontal: 14, gap: 10, marginBottom: 12, borderWidth: 1, borderColor: '#2A2A2A' },
+  searchInput: { flex: 1, fontSize: 14, color: '#FFF' },
+  tabsContainer: { flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 14, gap: 6, flexWrap: 'wrap' },
   tab: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#1A1A1A' },
   tabActive: { backgroundColor: 'rgba(255,107,0,0.15)' },
   tabText: { fontSize: 13, fontWeight: '600', color: '#999' },
@@ -154,6 +234,7 @@ const styles = StyleSheet.create({
   orderTotal: { fontSize: 18, fontWeight: '700', color: theme.primary },
   itemsList: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#2A2A2A', gap: 4 },
   itemText: { fontSize: 14, color: '#CCC' },
+  moreItems: { fontSize: 12, color: '#999', fontStyle: 'italic', marginTop: 2 },
   addressRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   addressText: { fontSize: 13, color: '#999', flex: 1 },
   actionsRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
@@ -164,4 +245,6 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: { fontSize: 16, fontWeight: '600', color: '#FFF', marginTop: 12 },
   emptySubtitle: { fontSize: 14, color: '#999', marginTop: 4, textAlign: 'center' },
+  clearBtn: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12, backgroundColor: 'rgba(255,107,0,0.15)' },
+  clearBtnText: { fontSize: 14, fontWeight: '600', color: theme.primary },
 });

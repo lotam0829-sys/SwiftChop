@@ -84,6 +84,19 @@ export interface DbUserProfile {
   is_approved: boolean;
   restaurant_name: string | null;
   avatar_url: string | null;
+  push_token?: string | null;
+}
+
+export interface DbReview {
+  id: string;
+  order_id: string;
+  customer_id: string;
+  restaurant_id: string;
+  rating: number;
+  review_text: string | null;
+  created_at: string;
+  // Joined fields
+  customer_name?: string;
 }
 
 // ---- Restaurants ----
@@ -275,6 +288,14 @@ export async function updateUserProfile(userId: string, updates: Partial<DbUserP
   return { error: error?.message || null };
 }
 
+export async function savePushToken(userId: string, token: string): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('user_profiles')
+    .update({ push_token: token })
+    .eq('id', userId);
+  return { error: error?.message || null };
+}
+
 // ---- Restaurant for owner ----
 
 export async function fetchOwnerRestaurant(ownerId: string): Promise<{ data: DbRestaurant | null; error: string | null }> {
@@ -309,4 +330,76 @@ export async function updateRestaurant(id: string, updates: Partial<DbRestaurant
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id);
   return { error: error?.message || null };
+}
+
+// ---- Reviews ----
+
+export async function fetchRestaurantReviews(restaurantId: string): Promise<{ data: DbReview[]; error: string | null }> {
+  const { data, error } = await supabase
+    .from('reviews')
+    .select('*, user_profiles!reviews_customer_id_fkey(username)')
+    .eq('restaurant_id', restaurantId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    // Fallback without join
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from('reviews')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+      .order('created_at', { ascending: false });
+    if (fallbackError) return { data: [], error: fallbackError.message };
+    return { data: fallbackData || [], error: null };
+  }
+
+  const mapped = (data || []).map((r: any) => ({
+    ...r,
+    customer_name: r.user_profiles?.username || 'Customer',
+  }));
+  return { data: mapped, error: null };
+}
+
+export async function fetchReviewByOrderId(orderId: string): Promise<{ data: DbReview | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('reviews')
+    .select('*')
+    .eq('order_id', orderId)
+    .maybeSingle();
+  if (error) return { data: null, error: error.message };
+  return { data, error: null };
+}
+
+export async function submitReview(review: {
+  order_id: string;
+  customer_id: string;
+  restaurant_id: string;
+  rating: number;
+  review_text?: string;
+}): Promise<{ data: DbReview | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('reviews')
+    .insert(review)
+    .select()
+    .single();
+  if (error) return { data: null, error: error.message };
+
+  // Update restaurant rating: calculate new average
+  const { data: allReviews } = await supabase
+    .from('reviews')
+    .select('rating')
+    .eq('restaurant_id', review.restaurant_id);
+
+  if (allReviews && allReviews.length > 0) {
+    const avgRating = allReviews.reduce((sum: number, r: any) => sum + r.rating, 0) / allReviews.length;
+    await supabase
+      .from('restaurants')
+      .update({
+        rating: parseFloat(avgRating.toFixed(1)),
+        review_count: allReviews.length,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', review.restaurant_id);
+  }
+
+  return { data, error: null };
 }

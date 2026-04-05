@@ -2,23 +2,20 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // Map Shipday webhook events to internal order statuses
-// STRICT: Only advance status based on real Shipday events
 function mapShipdayStatus(event: string, orderStatus: string): string | null {
-  // Event-based mapping (primary)
   const eventMap: Record<string, string> = {
-    'ORDER_INSERTED': 'pending',           // Order received by Shipday
-    'ORDER_ASSIGNED': 'confirmed',         // Driver assigned
-    'ORDER_ACCEPTED_AND_STARTED': 'preparing', // Driver accepted and started
-    'ORDER_PIKEDUP': 'on_the_way',         // Driver picked up food
-    'ORDER_ONTHEWAY': 'on_the_way',        // Driver on the way
-    'ORDER_COMPLETED': 'delivered',        // Delivery completed
-    'ORDER_FAILED': 'cancelled',           // Delivery failed
-    'ORDER_INCOMPLETE': 'cancelled',       // Delivery incomplete
+    'ORDER_INSERTED': 'pending',
+    'ORDER_ASSIGNED': 'confirmed',
+    'ORDER_ACCEPTED_AND_STARTED': 'preparing',
+    'ORDER_PIKEDUP': 'on_the_way',
+    'ORDER_ONTHEWAY': 'on_the_way',
+    'ORDER_COMPLETED': 'delivered',
+    'ORDER_FAILED': 'cancelled',
+    'ORDER_INCOMPLETE': 'cancelled',
   };
 
   if (eventMap[event]) return eventMap[event];
 
-  // Fallback: order_status field mapping
   const statusMap: Record<string, string> = {
     'NOT_ASSIGNED': 'pending',
     'NOT_ACCEPTED': 'pending',
@@ -34,8 +31,65 @@ function mapShipdayStatus(event: string, orderStatus: string): string | null {
   return statusMap[orderStatus] || null;
 }
 
+// Build push notification content based on order status
+function getNotificationContent(status: string, restaurantName: string, orderNumber: string): { title: string; body: string } | null {
+  const messages: Record<string, { title: string; body: string }> = {
+    confirmed: {
+      title: 'Order Confirmed! ✅',
+      body: `${restaurantName} has accepted your order ${orderNumber}. A rider will be assigned shortly.`,
+    },
+    preparing: {
+      title: 'Being Prepared 👨‍🍳',
+      body: `Your order from ${restaurantName} is now being prepared. Hang tight!`,
+    },
+    on_the_way: {
+      title: 'On the Way! 🛵',
+      body: `Your rider has picked up your order from ${restaurantName} and is heading to you.`,
+    },
+    delivered: {
+      title: 'Order Delivered! 🎉',
+      body: `Your order from ${restaurantName} has been delivered. Enjoy your meal! Leave a review to help others.`,
+    },
+    cancelled: {
+      title: 'Order Cancelled ❌',
+      body: `Unfortunately your order ${orderNumber} from ${restaurantName} has been cancelled.`,
+    },
+  };
+
+  return messages[status] || null;
+}
+
+// Send push notification via Expo's push service
+async function sendPushNotification(pushToken: string, title: string, body: string, data?: Record<string, any>) {
+  try {
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: pushToken,
+        sound: 'default',
+        title,
+        body,
+        data: data || {},
+        priority: 'high',
+        channelId: 'order-updates',
+      }),
+    });
+
+    const result = await response.json();
+    console.log('Push notification result:', JSON.stringify(result));
+    return result;
+  } catch (err) {
+    console.error('Push notification error:', err);
+    return null;
+  }
+}
+
 Deno.serve(async (req: Request) => {
-  // CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -44,12 +98,7 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     console.log('Shipday webhook received:', JSON.stringify(body));
 
-    const {
-      event,
-      order_status,
-      order,
-      carrier,
-    } = body;
+    const { event, order_status, order, carrier } = body;
 
     if (!order?.order_number) {
       console.error('Webhook missing order_number');
@@ -64,7 +113,6 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Map status strictly from Shipday events
     const newStatus = mapShipdayStatus(event, order_status);
     if (!newStatus) {
       console.log(`Ignoring event ${event} with status ${order_status}`);
@@ -80,15 +128,9 @@ Deno.serve(async (req: Request) => {
       updated_at: new Date().toISOString(),
     };
 
-    // Extract carrier info only when actually present
-    if (carrier?.name) {
-      updatePayload.shipday_carrier_name = carrier.name;
-    }
-    if (carrier?.phone) {
-      updatePayload.shipday_carrier_phone = carrier.phone;
-    }
+    if (carrier?.name) updatePayload.shipday_carrier_name = carrier.name;
+    if (carrier?.phone) updatePayload.shipday_carrier_phone = carrier.phone;
 
-    // Extract ETA if available
     if (order?.eta) {
       const etaDate = new Date(order.eta);
       const now = new Date();
@@ -96,13 +138,8 @@ Deno.serve(async (req: Request) => {
       updatePayload.shipday_eta = `${diffMinutes} min`;
     }
 
-    // Extract Shipday order ID and tracking URL from response
-    if (order?.id) {
-      updatePayload.shipday_order_id = order.id;
-    }
+    if (order?.id) updatePayload.shipday_order_id = order.id;
 
-    // Only set tracking URL if Shipday provides a real one in the webhook payload
-    // Check multiple possible field names from Shipday's response
     const trackingLink = order?.trackingLink || order?.tracking_link || order?.trackingUrl || body?.trackingLink;
     if (trackingLink && typeof trackingLink === 'string' && trackingLink.startsWith('http')) {
       updatePayload.shipday_tracking_url = trackingLink;
@@ -115,12 +152,11 @@ Deno.serve(async (req: Request) => {
       .from('orders')
       .update(updatePayload)
       .eq('order_number', order.order_number)
-      .select('id, status, order_number')
+      .select('id, status, order_number, customer_id, restaurant_name')
       .single();
 
     if (updateError) {
       console.error('Order update error:', updateError.message);
-      // Try with Shipday order ID as fallback
       if (order.id) {
         const { error: fallbackError } = await supabaseAdmin
           .from('orders')
@@ -138,6 +174,47 @@ Deno.serve(async (req: Request) => {
     }
 
     console.log('Order updated successfully:', updatedOrder);
+
+    // === PUSH NOTIFICATION ===
+    if (updatedOrder?.customer_id) {
+      try {
+        // Fetch customer push token
+        const { data: profile, error: profileError } = await supabaseAdmin
+          .from('user_profiles')
+          .select('push_token, username, email')
+          .eq('id', updatedOrder.customer_id)
+          .single();
+
+        if (profileError) {
+          console.error('Failed to fetch customer profile:', profileError.message);
+        } else if (profile?.push_token) {
+          const notification = getNotificationContent(
+            newStatus,
+            updatedOrder.restaurant_name || 'Restaurant',
+            updatedOrder.order_number || ''
+          );
+
+          if (notification) {
+            console.log(`Sending push to ${profile.push_token.substring(0, 20)}...`);
+            await sendPushNotification(
+              profile.push_token,
+              notification.title,
+              notification.body,
+              {
+                orderId: updatedOrder.id,
+                status: newStatus,
+                type: 'order_update',
+              }
+            );
+          }
+        } else {
+          console.log('Customer has no push token registered');
+        }
+      } catch (pushErr) {
+        // Push notification failure should not fail the webhook
+        console.error('Push notification process error:', pushErr);
+      }
+    }
 
     return new Response(
       JSON.stringify({ received: true, status: newStatus, orderId: updatedOrder?.id }),

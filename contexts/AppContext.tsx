@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { useAuth } from '@/template';
+import * as Notifications from 'expo-notifications';
 import {
   DbRestaurant, DbMenuItem, DbOrder, DbUserProfile,
   fetchRestaurants, fetchMenuItems, fetchAllMenuItems,
@@ -10,13 +11,12 @@ import {
   fetchUserProfile, updateUserProfile as updateProfileDb,
   fetchOwnerRestaurant, createRestaurantForOwner,
   insertMenuItem, updateMenuItem, deleteMenuItemById,
-  dispatchToShipday, fetchOrderById,
+  dispatchToShipday, fetchOrderById, savePushToken,
 } from '../services/supabaseData';
 import { foodCategories } from '../services/mockData';
 import { config, calculateDeliveryFee } from '../constants/config';
 import * as Location from 'expo-location';
 
-// Re-export for backward compatibility
 export { foodCategories };
 
 export interface CartItem {
@@ -27,21 +27,17 @@ export interface CartItem {
 }
 
 interface AppContextType {
-  // Auth
   isLoading: boolean;
   isAuthenticated: boolean;
   userProfile: DbUserProfile | null;
   refreshProfile: () => Promise<void>;
 
-  // Restaurants
   restaurants: DbRestaurant[];
   loadingRestaurants: boolean;
   refreshRestaurants: () => Promise<void>;
 
-  // Menu
   getMenuItems: (restaurantId: string) => Promise<DbMenuItem[]>;
 
-  // Cart
   cart: CartItem[];
   addToCart: (item: DbMenuItem, restaurantId: string, restaurantName: string) => void;
   removeFromCart: (itemId: string) => void;
@@ -50,14 +46,12 @@ interface AppContextType {
   cartTotal: number;
   cartCount: number;
 
-  // Customer orders
   customerOrders: DbOrder[];
   loadingOrders: boolean;
   placeOrder: (deliveryAddress: string, note?: string, paymentMethod?: string, deliveryFee?: number) => Promise<DbOrder | null>;
   refreshCustomerOrders: () => Promise<void>;
   refreshOrder: (orderId: string) => Promise<DbOrder | null>;
 
-  // Restaurant owner
   ownerRestaurant: DbRestaurant | null;
   restaurantOrders: DbOrder[];
   restaurantMenuItems: DbMenuItem[];
@@ -68,17 +62,27 @@ interface AppContextType {
   deleteMenuItemAction: (itemId: string) => Promise<void>;
   toggleMenuItemAvailability: (itemId: string) => Promise<void>;
 
-  // Profile updates
   updateProfile: (updates: Partial<DbUserProfile>) => Promise<void>;
 
-  // Location
   userLocation: { latitude: number; longitude: number } | null;
   requestLocation: () => Promise<void>;
+
+  // Push notifications
+  pushToken: string | null;
 }
 
 const AppContext = createContext<AppContextType>({} as AppContextType);
 
 export const useApp = () => useContext(AppContext);
+
+// Configure notification handler
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
@@ -90,15 +94,88 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [customerOrders, setCustomerOrders] = useState<DbOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
 
-  // Restaurant owner state
   const [ownerRestaurant, setOwnerRestaurant] = useState<DbRestaurant | null>(null);
   const [restaurantOrders, setRestaurantOrders] = useState<DbOrder[]>([]);
   const [restaurantMenuItems, setRestaurantMenuItems] = useState<DbMenuItem[]>([]);
   const [loadingRestaurantData, setLoadingRestaurantData] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [pushToken, setPushToken] = useState<string | null>(null);
+
+  const notificationListener = useRef<any>();
+  const responseListener = useRef<any>();
 
   const isAuthenticated = !!user;
   const isLoading = authLoading;
+
+  // === PUSH NOTIFICATIONS ===
+  useEffect(() => {
+    registerForPushNotifications();
+
+    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+      console.log('Notification received:', notification);
+    });
+
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data;
+      console.log('Notification tapped:', data);
+      // Navigation handled by the notification tap is done at the layout level
+    });
+
+    return () => {
+      if (notificationListener.current) {
+        Notifications.removeNotificationSubscription(notificationListener.current);
+      }
+      if (responseListener.current) {
+        Notifications.removeNotificationSubscription(responseListener.current);
+      }
+    };
+  }, []);
+
+  // Save push token to DB when user + token are both available
+  useEffect(() => {
+    if (user?.id && pushToken) {
+      savePushToken(user.id, pushToken).then(({ error }) => {
+        if (error) console.log('Failed to save push token:', error);
+        else console.log('Push token saved to profile');
+      });
+    }
+  }, [user?.id, pushToken]);
+
+  const registerForPushNotifications = async () => {
+    try {
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('order-updates', {
+          name: 'Order Updates',
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#FF6B00',
+          sound: 'default',
+        });
+      }
+
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== 'granted') {
+        console.log('Push notification permission denied');
+        return;
+      }
+
+      const tokenData = await Notifications.getExpoPushTokenAsync({
+        projectId: undefined, // Auto-detect from app.json
+      });
+
+      setPushToken(tokenData.data);
+      console.log('Push token:', tokenData.data);
+    } catch (err) {
+      console.log('Push notification setup error:', err);
+    }
+  };
 
   // Load user profile when auth user changes
   useEffect(() => {
@@ -113,13 +190,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [user?.id]);
 
-  // Load restaurants on mount and request location
   useEffect(() => {
     refreshRestaurants();
     requestLocation();
   }, []);
 
-  // Load cart from storage
   useEffect(() => {
     AsyncStorage.getItem('swiftchop_cart').then(data => {
       if (data) {
@@ -128,12 +203,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Persist cart
   useEffect(() => {
     AsyncStorage.setItem('swiftchop_cart', JSON.stringify(cart));
   }, [cart]);
 
-  // Load role-specific data when profile loads
   useEffect(() => {
     if (!userProfile) return;
     if (userProfile.role === 'customer') {
@@ -145,18 +218,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const loadProfile = async (userId: string) => {
     const { data } = await fetchUserProfile(userId);
-    if (data) {
-      setUserProfile(data);
-    }
+    if (data) setUserProfile(data);
   };
 
   const refreshProfile = async () => {
     if (user?.id) {
-      // Force re-fetch from database
       const { data } = await fetchUserProfile(user.id);
-      if (data) {
-        setUserProfile(data);
-      }
+      if (data) setUserProfile(data);
     }
   };
 
@@ -172,7 +240,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return data;
   };
 
-  // Cart
   const addToCart = (item: DbMenuItem, restaurantId: string, restaurantName: string) => {
     if (cart.length > 0 && cart[0].restaurantId !== restaurantId) {
       Alert.alert(
@@ -206,7 +273,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const cartTotal = cart.reduce((sum, ci) => sum + ci.menuItem.price * ci.quantity, 0);
   const cartCount = cart.reduce((sum, ci) => sum + ci.quantity, 0);
 
-  // Customer orders
   const refreshCustomerOrders = async () => {
     if (!user?.id) return;
     setLoadingOrders(true);
@@ -215,7 +281,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLoadingOrders(false);
   };
 
-  // Refresh a single order (for polling on tracking screen)
   const refreshOrder = async (orderId: string): Promise<DbOrder | null> => {
     const { data } = await fetchOrderById(orderId);
     if (data) {
@@ -233,12 +298,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const restaurant = restaurants.find(r => r.id === restaurantId);
 
     const orderNumber = `SC-${Date.now().toString(36).toUpperCase()}`;
-    // Use the calculated delivery fee passed from checkout, or calculate a default
     const finalDeliveryFee = deliveryFee ?? calculateDeliveryFee();
     const serviceFee = config.serviceFee;
     const total = cartTotal + finalDeliveryFee + serviceFee;
 
-    // Start as 'pending' — status will only advance via Shipday webhooks or restaurant action
     const { data, error } = await createOrder(
       {
         order_number: orderNumber,
@@ -281,7 +344,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       setCustomerOrders(prev => [orderWithItems, ...prev]);
 
-      // Dispatch to Shipday in background (non-blocking)
       dispatchToShipday(data.id).then(({ data: shipdayResult, error: shipdayError }) => {
         if (shipdayError) {
           console.log('Shipday dispatch note:', shipdayError);
@@ -304,7 +366,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return null;
   };
 
-  // Restaurant owner
   const refreshRestaurantData = async () => {
     if (!user?.id) return;
     setLoadingRestaurantData(true);
@@ -376,6 +437,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addMenuItem, deleteMenuItemAction, toggleMenuItemAvailability,
       updateProfile,
       userLocation, requestLocation,
+      pushToken,
     }}>
       {children}
     </AppContext.Provider>
