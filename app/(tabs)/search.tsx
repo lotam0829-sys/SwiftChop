@@ -10,6 +10,7 @@ import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
 import { DbMenuItem, DbRestaurant, fetchAllMenuItems } from '../../services/supabaseData';
+import { getCuisineColor, parseCuisines } from '../../constants/config';
 
 type SortOption = 'relevance' | 'distance' | 'rating' | 'delivery_fee' | 'delivery_time';
 
@@ -285,6 +286,14 @@ export default function SearchScreen() {
             </View>
           </View>
           <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
+          {item.restaurant ? (
+            <View style={styles.cuisinePillsRow}>
+              {parseCuisines(item.restaurant.cuisine).map((c, ci) => {
+                const cc = getCuisineColor(c);
+                return <View key={ci} style={[styles.cuisinePill, { backgroundColor: cc.bg }]}><Text style={[styles.cuisinePillText, { color: cc.text }]}>{c}</Text></View>;
+              })}
+            </View>
+          ) : null}
           <View style={styles.resultMeta}>
             {item.restaurant ? (
               <>
@@ -340,7 +349,12 @@ export default function SearchScreen() {
         </View>
         <View style={styles.nearbyInfo}>
           <Text style={styles.nearbyName} numberOfLines={1}>{r.name}</Text>
-          <Text style={styles.nearbyCuisine} numberOfLines={1}>{r.cuisine}</Text>
+          <View style={styles.cuisinePillsRow}>
+            {parseCuisines(r.cuisine).map((c, ci) => {
+              const cc = getCuisineColor(c);
+              return <View key={ci} style={[styles.cuisinePill, { backgroundColor: cc.bg }]}><Text style={[styles.cuisinePillText, { color: cc.text }]}>{c}</Text></View>;
+            })}
+          </View>
           <View style={styles.nearbyMeta}>
             <MaterialIcons name="star" size={12} color="#FCD34D" />
             <Text style={styles.nearbyMetaText}>{r.rating}</Text>
@@ -671,6 +685,9 @@ const styles = StyleSheet.create({
   nearbyCuisine: { fontSize: 12, color: theme.textSecondary, marginTop: 2 },
   nearbyMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
   nearbyMetaText: { fontSize: 11, fontWeight: '600', color: theme.textMuted },
+  cuisinePillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 3 },
+  cuisinePill: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
+  cuisinePillText: { fontSize: 10, fontWeight: '700' },
 
   // Popular grid
   popularGrid: { paddingHorizontal: 16, gap: 10 },

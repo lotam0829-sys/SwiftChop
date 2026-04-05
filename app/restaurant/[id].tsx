@@ -10,6 +10,7 @@ import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
 import { DbMenuItem, DbRestaurant, DbReview, fetchRestaurantById, fetchMenuItems, fetchRestaurantReviews } from '../../services/supabaseData';
+import { getCuisineColor, parseCuisines } from '../../constants/config';
 
 export default function RestaurantDetailScreen() {
   const router = useRouter();
@@ -149,7 +150,12 @@ export default function RestaurantDetailScreen() {
           </View>
           <View style={styles.heroBottom}>
             <Text style={styles.heroName}>{restaurant.name}</Text>
-            <Text style={styles.heroCuisine}>{restaurant.cuisine}</Text>
+            <View style={styles.heroCuisinePills}>
+            {parseCuisines(restaurant.cuisine).map((c, ci) => {
+              const cc = getCuisineColor(c);
+              return <View key={ci} style={[styles.heroCuisinePill, { backgroundColor: cc.bg }]}><Text style={[styles.heroCuisinePillText, { color: cc.text }]}>{c}</Text></View>;
+            })}
+          </View>
           </View>
         </View>
 
@@ -346,7 +352,9 @@ const styles = StyleSheet.create({
   cartBadgeText: { fontSize: 10, fontWeight: '700', color: '#FFF' },
   heroBottom: { position: 'absolute', bottom: 20, left: 16 },
   heroName: { fontSize: 26, fontWeight: '800', color: '#FFF' },
-  heroCuisine: { fontSize: 14, color: 'rgba(255,255,255,0.85)', marginTop: 4 },
+  heroCuisinePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  heroCuisinePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  heroCuisinePillText: { fontSize: 12, fontWeight: '700' },
   infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, paddingHorizontal: 12, gap: 12, flexWrap: 'wrap' },
   infoItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   infoValue: { fontSize: 14, fontWeight: '700', color: theme.textPrimary },

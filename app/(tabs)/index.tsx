@@ -12,6 +12,7 @@ import { useApp } from '../../contexts/AppContext';
 import { foodCategories } from '../../services/mockData';
 import { getImage } from '../../constants/images';
 import { DbRestaurant } from '../../services/supabaseData';
+import { getCuisineColor, parseCuisines } from '../../constants/config';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -217,6 +218,12 @@ export default function HomeScreen() {
                         </View>
                         <View style={styles.favInfo}>
                           <Text style={styles.favName} numberOfLines={1}>{r.name}</Text>
+                          <View style={styles.cuisinePillsRow}>
+                            {parseCuisines(r.cuisine).map((c, ci) => {
+                              const cc = getCuisineColor(c);
+                              return <View key={ci} style={[styles.cuisinePill, { backgroundColor: cc.bg }]}><Text style={[styles.cuisinePillText, { color: cc.text }]}>{c}</Text></View>;
+                            })}
+                          </View>
                           <View style={styles.favMeta}>
                             <MaterialIcons name="star" size={13} color="#FCD34D" />
                             <Text style={styles.favMetaText}>{r.rating}</Text>
@@ -311,7 +318,12 @@ export default function HomeScreen() {
                             <Text style={styles.ratingText}>{r.rating}</Text>
                           </View>
                         </View>
-                        <Text style={styles.restaurantCuisine}>{r.cuisine}</Text>
+                        <View style={styles.cuisinePillsRow}>
+                          {parseCuisines(r.cuisine).map((c, ci) => {
+                            const cc = getCuisineColor(c);
+                            return <View key={ci} style={[styles.cuisinePill, { backgroundColor: cc.bg }]}><Text style={[styles.cuisinePillText, { color: cc.text }]}>{c}</Text></View>;
+                          })}
+                        </View>
                         <View style={styles.restaurantMeta}>
                           {delivTime ? (
                             <>
@@ -443,6 +455,9 @@ const styles = StyleSheet.create({
   favName: { fontSize: 14, fontWeight: '700', color: theme.textPrimary },
   favMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   favMetaText: { fontSize: 11, fontWeight: '600', color: theme.textMuted },
+  cuisinePillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
+  cuisinePill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+  cuisinePillText: { fontSize: 10, fontWeight: '700' },
   // Heart button on restaurant cards
   heartBtn: { position: 'absolute', top: 10, right: 10, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.3)', alignItems: 'center', justifyContent: 'center' },
   // Modal
