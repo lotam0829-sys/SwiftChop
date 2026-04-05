@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +14,7 @@ export default function SignupScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { role } = useLocalSearchParams<{ role: string }>();
-  const { sendOTP, verifyOTPAndLogin, signInWithGoogle, operationLoading } = useAuth();
+  const { user, sendOTP, verifyOTPAndLogin, signInWithGoogle, operationLoading } = useAuth();
   const { showAlert } = useAlert();
   const { refreshProfile } = useApp();
   const userRole = (role as 'customer' | 'restaurant') || 'customer';
@@ -40,6 +40,65 @@ export default function SignupScreen() {
   const [deliveryTime, setDeliveryTime] = useState('25-35 min');
 
   const [settingUpProfile, setSettingUpProfile] = useState(false);
+  const [googleAuthPending, setGoogleAuthPending] = useState(false);
+  const prevUserId = useRef<string | null>(null);
+
+  // Handle Google Sign-In completion on signup page
+  // After Google creates/logs in the user, set their role immediately
+  useEffect(() => {
+    if (!googleAuthPending || !user?.id || user.id === prevUserId.current) return;
+
+    const handlePostGoogleAuth = async () => {
+      try {
+        setSettingUpProfile(true);
+
+        // Set the correct role based on what was selected on the welcome page
+        const profileUpdates: Record<string, any> = { role: userRole };
+
+        if (userRole === 'restaurant') {
+          // For restaurant Google signups, we need to collect details
+          // Check if they already filled out restaurant details
+          if (restaurantName.trim()) {
+            profileUpdates.restaurant_name = restaurantName.trim();
+            profileUpdates.restaurant_address = restaurantAddress.trim();
+            profileUpdates.restaurant_cuisine = restaurantCuisine.trim();
+            profileUpdates.restaurant_description = restaurantDescription.trim() || `Welcome to ${restaurantName.trim()}`;
+            profileUpdates.phone = restaurantPhone.trim();
+            profileUpdates.restaurant_delivery_fee = parseInt(deliveryFee) || 1200;
+            profileUpdates.restaurant_min_order = parseInt(minOrder) || 2000;
+            profileUpdates.restaurant_delivery_time = deliveryTime.trim() || '25-35 min';
+          }
+          profileUpdates.is_approved = false;
+        } else {
+          profileUpdates.is_approved = true;
+        }
+
+        await updateUserProfile(user.id, profileUpdates);
+
+        // Create restaurant listing for restaurant owners
+        if (userRole === 'restaurant' && restaurantName.trim()) {
+          await createRestaurantForOwner(user.id, restaurantName.trim());
+        }
+
+        await refreshProfile();
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        // RootNavigator will route based on the updated role
+      } catch (err) {
+        console.error('Post-Google signup error:', err);
+        showAlert('Error', 'Failed to set up your profile. Please try again.');
+      } finally {
+        setSettingUpProfile(false);
+        setGoogleAuthPending(false);
+      }
+    };
+
+    handlePostGoogleAuth();
+  }, [user?.id, googleAuthPending]);
+
+  // Track previous user ID
+  useEffect(() => {
+    prevUserId.current = user?.id || null;
+  }, [user?.id]);
 
   const validateCredentials = (): boolean => {
     if (!email.trim() || !email.includes('@')) { showAlert('Error', 'Please enter a valid email'); return false; }
@@ -96,8 +155,7 @@ export default function SignupScreen() {
       return;
     }
 
-    // CRITICAL: Set the correct role BEFORE the context reads the profile.
-    // The trigger creates with 'pending_role', so we must update immediately.
+    // Set the correct role IMMEDIATELY after account creation
     setSettingUpProfile(true);
     try {
       const profileUpdates: Record<string, any> = { role: userRole };
@@ -116,19 +174,15 @@ export default function SignupScreen() {
         profileUpdates.is_approved = true;
       }
 
-      // Update user_profiles with the REAL role
       await updateUserProfile(newUser.id, profileUpdates);
 
-      // Create restaurant listing for restaurant owners
       if (userRole === 'restaurant' && restaurantName.trim()) {
         await createRestaurantForOwner(newUser.id, restaurantName.trim());
       }
 
       // Force context to re-read the updated profile so routing works correctly
       await refreshProfile();
-
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      // RootNavigator will now see the correct role and route accordingly
     } catch (err) {
       console.error('Profile setup error:', err);
       showAlert('Error', 'Failed to set up profile. Please contact support.');
@@ -138,8 +192,19 @@ export default function SignupScreen() {
   };
 
   const handleGoogleSignIn = async () => {
+    // For restaurant role, ensure details are collected first
+    if (userRole === 'restaurant' && step === 'credentials') {
+      showAlert('Restaurant Details Required', 'Please fill in your credentials and restaurant details first, then use Google Sign-In on the final step. Or continue with email verification.');
+      return;
+    }
+    if (userRole === 'restaurant' && !validateRestaurantDetails()) {
+      return;
+    }
+
+    setGoogleAuthPending(true);
     const { error } = await signInWithGoogle();
     if (error) {
+      setGoogleAuthPending(false);
       showAlert('Google Sign-In Failed', error);
     }
   };
@@ -148,17 +213,21 @@ export default function SignupScreen() {
 
   const renderCredentialsStep = () => (
     <>
-      {/* Google Sign-In */}
-      <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={isProcessing}>
-        <Ionicons name="logo-google" size={20} color="#DB4437" />
-        <Text style={styles.googleBtnText}>Continue with Google</Text>
-      </Pressable>
+      {/* Google Sign-In — only for customer signups at this step */}
+      {userRole === 'customer' ? (
+        <>
+          <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={isProcessing}>
+            <Ionicons name="logo-google" size={20} color="#DB4437" />
+            <Text style={styles.googleBtnText}>Continue with Google</Text>
+          </Pressable>
 
-      <View style={styles.divider}>
-        <View style={styles.dividerLine} />
-        <Text style={styles.dividerText}>or sign up with email</Text>
-        <View style={styles.dividerLine} />
-      </View>
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or sign up with email</Text>
+            <View style={styles.dividerLine} />
+          </View>
+        </>
+      ) : null}
 
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>Email address</Text>
@@ -250,13 +319,13 @@ export default function SignupScreen() {
 
       <View style={styles.twoCol}>
         <View style={[styles.inputGroup, { flex: 1 }]}>
-          <Text style={styles.inputLabel}>Delivery Fee (₦)</Text>
+          <Text style={styles.inputLabel}>Delivery Fee (naira)</Text>
           <View style={styles.inputWrap}>
             <TextInput style={styles.input} placeholder="1200" placeholderTextColor={theme.textMuted} value={deliveryFee} onChangeText={setDeliveryFee} keyboardType="number-pad" />
           </View>
         </View>
         <View style={[styles.inputGroup, { flex: 1 }]}>
-          <Text style={styles.inputLabel}>Min Order (₦)</Text>
+          <Text style={styles.inputLabel}>Min Order (naira)</Text>
           <View style={styles.inputWrap}>
             <TextInput style={styles.input} placeholder="2000" placeholderTextColor={theme.textMuted} value={minOrder} onChangeText={setMinOrder} keyboardType="number-pad" />
           </View>
@@ -273,6 +342,18 @@ export default function SignupScreen() {
 
       <View style={{ height: 8 }} />
       <PrimaryButton label="Send Verification Code" onPress={handleRestaurantNext} loading={isProcessing} variant="dark" />
+
+      {/* Google Sign-In available here after restaurant details are filled */}
+      <View style={styles.divider}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerText}>or</Text>
+        <View style={styles.dividerLine} />
+      </View>
+      <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={isProcessing}>
+        <Ionicons name="logo-google" size={20} color="#DB4437" />
+        <Text style={styles.googleBtnText}>Sign up with Google</Text>
+      </Pressable>
+
       <Pressable onPress={() => setStep('credentials')} style={{ marginTop: 14, alignSelf: 'center' }}>
         <Text style={{ fontSize: 14, color: theme.primary, fontWeight: '600' }}>Back to credentials</Text>
       </Pressable>

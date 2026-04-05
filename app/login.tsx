@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,22 +7,81 @@ import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
 import { useAuth, useAlert } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
+import { fetchUserProfile, updateUserProfile, createRestaurantForOwner } from '../services/supabaseData';
+import { useApp } from '../contexts/AppContext';
 
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { role } = useLocalSearchParams<{ role: string }>();
-  const { signInWithPassword, signInWithGoogle, operationLoading } = useAuth();
+  const { user, signInWithPassword, signInWithGoogle, logout, operationLoading } = useAuth();
   const { showAlert } = useAlert();
+  const { refreshProfile } = useApp();
   const userRole = (role as 'customer' | 'restaurant') || 'customer';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [googleAuthPending, setGoogleAuthPending] = useState(false);
+  const [settingUp, setSettingUp] = useState(false);
+  const prevUserId = useRef<string | null>(null);
+
+  // Detect when a NEW user is created via Google Sign-In
+  useEffect(() => {
+    if (!googleAuthPending || !user?.id || user.id === prevUserId.current) return;
+
+    const handlePostGoogleAuth = async () => {
+      try {
+        setSettingUp(true);
+        const createdAt = user.created_at ? new Date(user.created_at) : null;
+        const now = new Date();
+        const isNewUser = createdAt && (now.getTime() - createdAt.getTime()) < 120000; // created within 2 min
+
+        if (isNewUser) {
+          // New user signed up via Google on the LOGIN page
+          // They need to go to signup to choose their role properly
+          showAlert(
+            'Welcome!',
+            'It looks like you do not have an account yet. Please sign up to set up your profile.',
+            [
+              {
+                text: 'Go to Sign Up',
+                onPress: async () => {
+                  await logout();
+                  router.replace({ pathname: '/signup', params: { role: userRole } });
+                },
+              },
+            ]
+          );
+          setGoogleAuthPending(false);
+          setSettingUp(false);
+          return;
+        }
+
+        // Existing user — just refresh profile and let routing handle it
+        await refreshProfile();
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (err) {
+        console.error('Post-Google auth error:', err);
+      } finally {
+        setGoogleAuthPending(false);
+        setSettingUp(false);
+      }
+    };
+
+    handlePostGoogleAuth();
+  }, [user?.id, googleAuthPending]);
+
+  // Track previous user ID to detect auth state changes
+  useEffect(() => {
+    prevUserId.current = user?.id || null;
+  }, [user?.id]);
 
   const handleGoogleSignIn = async () => {
+    setGoogleAuthPending(true);
     const { error } = await signInWithGoogle();
     if (error) {
+      setGoogleAuthPending(false);
       showAlert('Google Sign-In Failed', error);
     }
   };
@@ -37,9 +96,10 @@ export default function LoginScreen() {
       showAlert('Login Failed', error);
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      // AuthRouter / root navigator handles redirect
     }
   };
+
+  const isProcessing = operationLoading || settingUp;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -69,7 +129,7 @@ export default function LoginScreen() {
           </View>
 
           {/* Google Sign-In */}
-          <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={operationLoading}>
+          <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={isProcessing}>
             <Ionicons name="logo-google" size={20} color="#DB4437" />
             <Text style={styles.googleBtnText}>Continue with Google</Text>
           </Pressable>
@@ -119,7 +179,7 @@ export default function LoginScreen() {
 
           <View style={{ height: 24 }} />
 
-          <PrimaryButton label="Sign In" onPress={handleLogin} loading={operationLoading} variant="dark" />
+          <PrimaryButton label={settingUp ? 'Signing in...' : 'Sign In'} onPress={handleLogin} loading={isProcessing} variant="dark" />
 
           <Pressable
             onPress={() => router.push({ pathname: '/signup', params: { role: userRole } })}

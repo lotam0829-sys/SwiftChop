@@ -32,12 +32,8 @@ function RootNavigator() {
 
     // Authenticated but on an auth screen → route based on role
     if (isAuthenticated && isAuthScreen) {
-      // CRITICAL: Wait for profile to be loaded AND role to be set.
-      // If role is 'pending_role', the signup flow is still setting up the profile.
-      if (!userProfile || userProfile.role === 'pending_role') {
-        // Don't route yet — wait for profile update
-        return;
-      }
+      // Wait for profile to load before routing
+      if (!userProfile) return;
 
       if (userProfile.role === 'restaurant') {
         router.replace(userProfile.is_approved ? '/(restaurant)' : '/pending-approval');

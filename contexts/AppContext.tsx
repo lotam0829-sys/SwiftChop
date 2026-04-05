@@ -125,9 +125,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem('swiftchop_cart', JSON.stringify(cart));
   }, [cart]);
 
-  // Load role-specific data when profile loads with a REAL role (not pending_role)
+  // Load role-specific data when profile loads
   useEffect(() => {
-    if (!userProfile || userProfile.role === 'pending_role') return;
+    if (!userProfile) return;
     if (userProfile.role === 'customer') {
       refreshCustomerOrders();
     } else if (userProfile.role === 'restaurant') {
