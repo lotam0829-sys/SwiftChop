@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
 import { theme } from '../constants/theme';
 import { config, calculateDeliveryFee, deliveryPricing } from '../constants/config';
 import { useApp } from '../contexts/AppContext';
@@ -12,15 +13,55 @@ import PrimaryButton from '../components/ui/PrimaryButton';
 export default function CheckoutScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { cart, cartTotal, placeOrder } = useApp();
+  const { cart, cartTotal, placeOrder, userLocation, userProfile } = useApp();
 
-  const [address, setAddress] = useState('5 Adeola Hopewell St, Victoria Island, Lagos');
+  const [address, setAddress] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'transfer' | 'cash'>('card');
   const [loading, setLoading] = useState(false);
   const [note, setNote] = useState('');
+  const [estimatedKm, setEstimatedKm] = useState<number | null>(null);
+  const [loadingAddress, setLoadingAddress] = useState(false);
 
-  // Delivery fee is calculated from estimated distance (default estimate until Shipday returns actual)
-  const deliveryFee = calculateDeliveryFee();
+  // Pre-fill address from location
+  useEffect(() => {
+    if (userProfile?.address) {
+      setAddress(userProfile.address);
+      return;
+    }
+    if (!userLocation) return;
+    let cancelled = false;
+    const geocode = async () => {
+      setLoadingAddress(true);
+      try {
+        const results = await Location.reverseGeocodeAsync({
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+        });
+        if (!cancelled && results.length > 0) {
+          const r = results[0];
+          const parts = [r.name, r.street, r.district, r.city, r.region].filter(Boolean);
+          setAddress(parts.join(', '));
+        }
+      } catch (err) {
+        console.log('Geocode error:', err);
+      } finally {
+        if (!cancelled) setLoadingAddress(false);
+      }
+    };
+    geocode();
+    return () => { cancelled = true; };
+  }, [userLocation, userProfile?.address]);
+
+  // Estimate distance to restaurant for delivery fee
+  useEffect(() => {
+    if (!userLocation || cart.length === 0) return;
+    // Try to get restaurant location for distance calculation
+    // For now we use the default estimate — Shipday will recalculate with actual distance
+    // When restaurants have lat/lng, we can calculate here
+    setEstimatedKm(null); // Will use default
+  }, [userLocation, cart]);
+
+  const deliveryFee = calculateDeliveryFee(estimatedKm);
   const serviceFee = config.serviceFee;
   const total = cartTotal + deliveryFee + serviceFee;
 
@@ -57,8 +98,15 @@ export default function CheckoutScreen() {
             <View style={styles.sectionHeader}>
               <MaterialIcons name="location-on" size={20} color={theme.primary} />
               <Text style={styles.sectionTitle}>Delivery Address</Text>
+              {loadingAddress ? <Text style={styles.loadingHint}>Detecting...</Text> : null}
             </View>
             <TextInput style={styles.addressInput} value={address} onChangeText={setAddress} placeholder="Enter delivery address" placeholderTextColor={theme.textMuted} multiline />
+            {userLocation ? (
+              <View style={styles.locationDetected}>
+                <MaterialIcons name="my-location" size={14} color={theme.success} />
+                <Text style={styles.locationDetectedText}>Using your current location</Text>
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.section}>
@@ -107,18 +155,17 @@ export default function CheckoutScreen() {
             <View style={styles.summaryRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text style={styles.summaryLabel}>Delivery fee</Text>
-                <Text style={styles.summaryHint}>(est. ~{deliveryPricing.defaultEstimateKm}km)</Text>
+                <Text style={styles.summaryHint}>(est. ~{estimatedKm || deliveryPricing.defaultEstimateKm}km)</Text>
               </View>
               <Text style={styles.summaryValue}>{config.currency}{deliveryFee.toLocaleString()}</Text>
             </View>
             <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Service fee</Text><Text style={styles.summaryValue}>{config.currency}{serviceFee.toLocaleString()}</Text></View>
           </View>
 
-          {/* Delivery fee note */}
           <View style={styles.feeNote}>
             <MaterialIcons name="info-outline" size={16} color={theme.textMuted} />
             <Text style={styles.feeNoteText}>
-              Delivery fee is estimated based on distance. Final fee may adjust slightly after the rider is assigned.
+              Delivery fee is estimated based on distance. Final fee may adjust slightly after the rider is assigned via Shipday.
             </Text>
           </View>
         </ScrollView>
@@ -143,7 +190,10 @@ const styles = StyleSheet.create({
   section: { paddingHorizontal: 16, marginBottom: 20 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
+  loadingHint: { fontSize: 12, color: theme.textMuted, marginLeft: 'auto' },
   addressInput: { backgroundColor: theme.backgroundSecondary, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, color: theme.textPrimary, minHeight: 52, borderWidth: 1, borderColor: theme.border },
+  locationDetected: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
+  locationDetectedText: { fontSize: 12, color: theme.success, fontWeight: '500' },
   paymentOption: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1.5, borderColor: theme.border, marginBottom: 10 },
   paymentOptionActive: { borderColor: theme.primary, backgroundColor: theme.primaryFaint },
   paymentIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center' },

@@ -22,13 +22,13 @@ const customerSlides = [
   {
     image: require('@/assets/images/onboarding-customer-1.jpg'),
     title: 'Discover with AI',
-    subtitle: 'SwiftChop learns what you crave and recommends meals tailored just for you. No more endless scrolling — the right food, at the right time.',
+    subtitle: 'SwiftChop learns what you crave and recommends meals tailored just for you. No more endless scrolling \u2014 the right food, at the right time.',
     icon: 'auto-awesome',
   },
   {
     image: require('@/assets/images/onboarding-customer-2.jpg'),
     title: 'Lightning Fast Delivery',
-    subtitle: 'Hot food, delivered fast. Our optimized delivery network finds the quickest route to your door — with prices that keep your wallet happy.',
+    subtitle: 'Hot food, delivered fast. Our optimized delivery network finds the quickest route to your door \u2014 with prices that keep your wallet happy.',
     icon: 'delivery-dining',
   },
   {
@@ -60,7 +60,7 @@ const restaurantSlides = [
   },
 ];
 
-type OnboardingPhase = 'slides' | 'location' | 'card' | 'restaurant_details' | 'certificate';
+type OnboardingPhase = 'slides' | 'location' | 'card' | 'restaurant_details' | 'bank_details' | 'certificate';
 
 export default function OnboardingScreen() {
   const router = useRouter();
@@ -96,6 +96,11 @@ export default function OnboardingScreen() {
   const [minOrder, setMinOrder] = useState('2000');
   const [deliveryTime, setDeliveryTime] = useState('25-35 min');
 
+  // Bank details state
+  const [bankName, setBankName] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankAccountName, setBankAccountName] = useState('');
+
   // Certificate state
   const [certificateFile, setCertificateFile] = useState<{ name: string; uri: string; size?: number } | null>(null);
   const [uploadingCert, setUploadingCert] = useState(false);
@@ -115,7 +120,6 @@ export default function OnboardingScreen() {
     if (currentIndex < slides.length - 1) {
       flatListRef.current?.scrollToIndex({ index: currentIndex + 1, animated: true });
     } else {
-      // Last slide → go to location permission
       setPhase('location');
     }
   }, [currentIndex, slides.length]);
@@ -140,7 +144,6 @@ export default function OnboardingScreen() {
     } catch (err) {
       console.log('Location error:', err);
     }
-    // Proceed to next step regardless
     if (userRole === 'customer') {
       setPhase('card');
     } else {
@@ -190,12 +193,29 @@ export default function OnboardingScreen() {
     }
   };
 
-  // Restaurant: details step
+  // Restaurant: details step -> bank details
   const handleRestaurantDetailsNext = () => {
     if (!restaurantName.trim()) { showAlert('Required', 'Please enter your restaurant name'); return; }
     if (!restaurantAddress.trim()) { showAlert('Required', 'Please enter your restaurant address'); return; }
     if (!restaurantCuisine.trim()) { showAlert('Required', 'Please enter your cuisine type'); return; }
     if (!restaurantPhone.trim()) { showAlert('Required', 'Please enter a contact phone number'); return; }
+    setPhase('bank_details');
+  };
+
+  // Restaurant: bank details -> certificate
+  const handleBankDetailsNext = () => {
+    if (!bankAccountNumber.trim() || bankAccountNumber.trim().length < 10) {
+      showAlert('Required', 'Please enter a valid 10-digit bank account number');
+      return;
+    }
+    if (!bankName.trim()) {
+      showAlert('Required', 'Please enter your bank name');
+      return;
+    }
+    if (!bankAccountName.trim()) {
+      showAlert('Required', 'Please enter the name on your bank account');
+      return;
+    }
     setPhase('certificate');
   };
 
@@ -227,7 +247,6 @@ export default function OnboardingScreen() {
 
     setLoading(true);
     try {
-      // Upload certificate to storage
       let certificateUrl: string | null = null;
       setUploadingCert(true);
 
@@ -235,11 +254,8 @@ export default function OnboardingScreen() {
       const fileExt = 'pdf';
       const filePath = `${user.id}/business-certificate.${fileExt}`;
 
-      // Read file as blob for upload
       const response = await fetch(certificateFile.uri);
       const blob = await response.blob();
-
-      // Convert blob to ArrayBuffer
       const arrayBuffer = await new Response(blob).arrayBuffer();
 
       const { error: uploadError } = await supabase.storage
@@ -260,7 +276,7 @@ export default function OnboardingScreen() {
       certificateUrl = filePath;
       setUploadingCert(false);
 
-      // Update profile with restaurant details and certificate
+      // Update profile with restaurant details, bank details, and certificate
       await updateUserProfile(user.id, {
         role: 'restaurant',
         restaurant_name: restaurantName.trim(),
@@ -272,6 +288,9 @@ export default function OnboardingScreen() {
         restaurant_delivery_time: deliveryTime.trim() || '25-35 min',
         is_approved: false,
         business_certificate_url: certificateUrl,
+        bank_name: bankName.trim(),
+        bank_account_number: bankAccountNumber.trim(),
+        bank_account_name: bankAccountName.trim(),
       } as any);
 
       await createRestaurantForOwner(user.id, restaurantName.trim());
@@ -296,7 +315,6 @@ export default function OnboardingScreen() {
   const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
   const isLastSlide = currentIndex === slides.length - 1;
 
-  // Format card number with spaces
   const formatCardNumber = (text: string) => {
     const cleaned = text.replace(/\D/g, '').slice(0, 16);
     const groups = cleaned.match(/.{1,4}/g);
@@ -307,6 +325,14 @@ export default function OnboardingScreen() {
     const cleaned = text.replace(/\D/g, '').slice(0, 4);
     if (cleaned.length >= 3) return `${cleaned.slice(0, 2)}/${cleaned.slice(2)}`;
     return cleaned;
+  };
+
+  const totalRestaurantSteps = 3;
+  const getCurrentRestaurantStep = (): number => {
+    if (phase === 'restaurant_details') return 1;
+    if (phase === 'bank_details') return 2;
+    if (phase === 'certificate') return 3;
+    return 1;
   };
 
   // ====== LOCATION PERMISSION SCREEN ======
@@ -370,7 +396,6 @@ export default function OnboardingScreen() {
               <Text style={styles.formSubtitle}>Add a debit or credit card for fast, seamless checkout. Your card details are securely encrypted.</Text>
             </View>
 
-            {/* Card Preview */}
             <View style={styles.cardPreview}>
               <LinearGradient
                 colors={['#1A1A2E', '#16213E']}
@@ -402,15 +427,7 @@ export default function OnboardingScreen() {
               <Text style={styles.inputLabel}>Card Number</Text>
               <View style={styles.inputWrap}>
                 <MaterialIcons name="credit-card" size={20} color={theme.textMuted} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="1234 5678 9012 3456"
-                  placeholderTextColor={theme.textMuted}
-                  value={cardNumber}
-                  onChangeText={(t) => setCardNumber(formatCardNumber(t))}
-                  keyboardType="number-pad"
-                  maxLength={19}
-                />
+                <TextInput style={styles.input} placeholder="1234 5678 9012 3456" placeholderTextColor={theme.textMuted} value={cardNumber} onChangeText={(t) => setCardNumber(formatCardNumber(t))} keyboardType="number-pad" maxLength={19} />
               </View>
             </View>
 
@@ -418,30 +435,13 @@ export default function OnboardingScreen() {
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.inputLabel}>Expiry Date</Text>
                 <View style={styles.inputWrap}>
-                  <TextInput
-                    style={[styles.input, { textAlign: 'center' }]}
-                    placeholder="MM/YY"
-                    placeholderTextColor={theme.textMuted}
-                    value={cardExpiry}
-                    onChangeText={(t) => setCardExpiry(formatExpiry(t))}
-                    keyboardType="number-pad"
-                    maxLength={5}
-                  />
+                  <TextInput style={[styles.input, { textAlign: 'center' }]} placeholder="MM/YY" placeholderTextColor={theme.textMuted} value={cardExpiry} onChangeText={(t) => setCardExpiry(formatExpiry(t))} keyboardType="number-pad" maxLength={5} />
                 </View>
               </View>
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.inputLabel}>CVV</Text>
                 <View style={styles.inputWrap}>
-                  <TextInput
-                    style={[styles.input, { textAlign: 'center' }]}
-                    placeholder="\u2022\u2022\u2022"
-                    placeholderTextColor={theme.textMuted}
-                    value={cardCVV}
-                    onChangeText={(t) => setCardCVV(t.replace(/\D/g, '').slice(0, 4))}
-                    keyboardType="number-pad"
-                    maxLength={4}
-                    secureTextEntry
-                  />
+                  <TextInput style={[styles.input, { textAlign: 'center' }]} placeholder={"\u2022\u2022\u2022"} placeholderTextColor={theme.textMuted} value={cardCVV} onChangeText={(t) => setCardCVV(t.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" maxLength={4} secureTextEntry />
                 </View>
               </View>
             </View>
@@ -450,14 +450,7 @@ export default function OnboardingScreen() {
               <Text style={styles.inputLabel}>Cardholder Name</Text>
               <View style={styles.inputWrap}>
                 <MaterialIcons name="person" size={20} color={theme.textMuted} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Name on card"
-                  placeholderTextColor={theme.textMuted}
-                  value={cardName}
-                  onChangeText={setCardName}
-                  autoCapitalize="characters"
-                />
+                <TextInput style={styles.input} placeholder="Name on card" placeholderTextColor={theme.textMuted} value={cardName} onChangeText={setCardName} autoCapitalize="characters" />
               </View>
             </View>
 
@@ -476,6 +469,7 @@ export default function OnboardingScreen() {
 
   // ====== RESTAURANT: DETAILS FORM ======
   if (phase === 'restaurant_details') {
+    const step = getCurrentRestaurantStep();
     return (
       <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -496,10 +490,10 @@ export default function OnboardingScreen() {
               <Text style={styles.formSubtitle}>Complete your profile to start receiving orders. All fields marked * are required.</Text>
             </View>
 
-            {/* Step indicator */}
             <View style={styles.stepRow}>
               <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>1. Details</Text></View>
-              <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>2. Certificate</Text></View>
+              <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>2. Bank</Text></View>
+              <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>3. Certificate</Text></View>
             </View>
 
             <View style={styles.inputGroup}>
@@ -544,7 +538,7 @@ export default function OnboardingScreen() {
 
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.inputLabel}>Min. Order (naira)</Text>
+                <Text style={styles.inputLabel}>Min. Order (\u20A6)</Text>
                 <View style={styles.inputWrap}>
                   <TextInput style={[styles.input, { textAlign: 'center' }]} placeholder="2000" placeholderTextColor={theme.textMuted} value={minOrder} onChangeText={setMinOrder} keyboardType="number-pad" />
                 </View>
@@ -558,7 +552,79 @@ export default function OnboardingScreen() {
             </View>
 
             <View style={{ height: 12 }} />
-            <PrimaryButton label="Next: Upload Certificate" onPress={handleRestaurantDetailsNext} variant="dark" icon={<MaterialIcons name="arrow-forward" size={20} color="#FFF" />} />
+            <PrimaryButton label="Next: Bank Details" onPress={handleRestaurantDetailsNext} variant="dark" icon={<MaterialIcons name="arrow-forward" size={20} color="#FFF" />} />
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
+    );
+  }
+
+  // ====== RESTAURANT: BANK DETAILS ======
+  if (phase === 'bank_details') {
+    return (
+      <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView
+            contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <Pressable onPress={() => setPhase('restaurant_details')} style={styles.formBackBtn}>
+              <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
+            </Pressable>
+
+            <View style={styles.formHeader}>
+              <View style={[styles.formIconWrap, { backgroundColor: '#ECFDF5' }]}>
+                <MaterialIcons name="account-balance" size={32} color={theme.success} />
+              </View>
+              <Text style={styles.formTitle}>Bank Details</Text>
+              <Text style={styles.formSubtitle}>Add your bank account for receiving payments from orders. All fields are required.</Text>
+            </View>
+
+            <View style={styles.stepRow}>
+              <View style={[styles.stepPill, { backgroundColor: theme.successLight }]}>
+                <MaterialIcons name="check" size={14} color={theme.success} />
+                <Text style={[styles.stepPillText, { color: theme.success }]}>1. Details</Text>
+              </View>
+              <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>2. Bank</Text></View>
+              <View style={styles.stepPill}><Text style={[styles.stepPillText, { color: theme.textMuted }]}>3. Certificate</Text></View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Bank Name *</Text>
+              <View style={styles.inputWrap}>
+                <MaterialIcons name="account-balance" size={20} color={theme.textMuted} style={styles.inputIcon} />
+                <TextInput style={styles.input} placeholder="e.g. GTBank, First Bank, Access Bank" placeholderTextColor={theme.textMuted} value={bankName} onChangeText={setBankName} />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Account Number *</Text>
+              <View style={styles.inputWrap}>
+                <MaterialIcons name="pin" size={20} color={theme.textMuted} style={styles.inputIcon} />
+                <TextInput style={styles.input} placeholder="0123456789" placeholderTextColor={theme.textMuted} value={bankAccountNumber} onChangeText={(t) => setBankAccountNumber(t.replace(/\D/g, '').slice(0, 10))} keyboardType="number-pad" maxLength={10} />
+              </View>
+              <Text style={styles.inputHint}>Nigerian bank accounts are 10 digits</Text>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Account Name *</Text>
+              <View style={styles.inputWrap}>
+                <MaterialIcons name="badge" size={20} color={theme.textMuted} style={styles.inputIcon} />
+                <TextInput style={styles.input} placeholder="Name as it appears on your bank account" placeholderTextColor={theme.textMuted} value={bankAccountName} onChangeText={setBankAccountName} autoCapitalize="words" />
+              </View>
+            </View>
+
+            <View style={styles.bankInfoCard}>
+              <MaterialIcons name="info-outline" size={18} color={theme.info} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.bankInfoTitle}>Why we need this</Text>
+                <Text style={styles.bankInfoText}>Your earnings from customer orders will be settled to this account weekly. You can update it later in Settings.</Text>
+              </View>
+            </View>
+
+            <View style={{ height: 12 }} />
+            <PrimaryButton label="Next: Upload Certificate" onPress={handleBankDetailsNext} variant="dark" icon={<MaterialIcons name="arrow-forward" size={20} color="#FFF" />} />
           </ScrollView>
         </KeyboardAvoidingView>
       </View>
@@ -575,7 +641,7 @@ export default function OnboardingScreen() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <Pressable onPress={() => setPhase('restaurant_details')} style={styles.formBackBtn}>
+            <Pressable onPress={() => setPhase('bank_details')} style={styles.formBackBtn}>
               <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
             </Pressable>
 
@@ -587,16 +653,18 @@ export default function OnboardingScreen() {
               <Text style={styles.formSubtitle}>Upload your CAC Business Registration Certificate to verify your restaurant. This is required before your restaurant can go live.</Text>
             </View>
 
-            {/* Step indicator */}
             <View style={styles.stepRow}>
               <View style={[styles.stepPill, { backgroundColor: theme.successLight }]}>
                 <MaterialIcons name="check" size={14} color={theme.success} />
                 <Text style={[styles.stepPillText, { color: theme.success }]}>1. Details</Text>
               </View>
-              <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>2. Certificate</Text></View>
+              <View style={[styles.stepPill, { backgroundColor: theme.successLight }]}>
+                <MaterialIcons name="check" size={14} color={theme.success} />
+                <Text style={[styles.stepPillText, { color: theme.success }]}>2. Bank</Text>
+              </View>
+              <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>3. Certificate</Text></View>
             </View>
 
-            {/* CAC Guide Link */}
             <Pressable
               onPress={() => Linking.openURL('https://icrp.cac.gov.ng/assets/docs/crp-user-guide.pdf')}
               style={styles.cacGuideCard}
@@ -611,7 +679,6 @@ export default function OnboardingScreen() {
               <MaterialIcons name="open-in-new" size={18} color="#2563EB" />
             </Pressable>
 
-            {/* Upload Area */}
             <Pressable onPress={handlePickCertificate} style={[styles.uploadArea, certificateFile ? styles.uploadAreaDone : null]}>
               {certificateFile ? (
                 <View style={styles.uploadedFileRow}>
@@ -790,6 +857,7 @@ const styles = StyleSheet.create({
   inputWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, height: 52, backgroundColor: theme.backgroundSecondary },
   inputIcon: { marginRight: 10 },
   input: { flex: 1, fontSize: 15, color: theme.textPrimary },
+  inputHint: { fontSize: 12, color: theme.textMuted, marginTop: 4, paddingLeft: 4 },
   formNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 20, paddingHorizontal: 4 },
   formNoteText: { flex: 1, fontSize: 12, color: theme.textMuted, lineHeight: 17 },
 
@@ -809,6 +877,11 @@ const styles = StyleSheet.create({
   cardPreviewName: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.9)' },
   secureNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 4, marginTop: 4 },
   secureNoteText: { flex: 1, fontSize: 12, color: theme.textMuted, lineHeight: 17 },
+
+  // Bank details
+  bankInfoCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 16, borderRadius: 14, backgroundColor: theme.infoLight, borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 8, marginTop: 4 },
+  bankInfoTitle: { fontSize: 14, fontWeight: '700', color: '#1E40AF', marginBottom: 4 },
+  bankInfoText: { fontSize: 13, color: '#6B7280', lineHeight: 19 },
 
   // Certificate
   cacGuideCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 14, backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 20 },

@@ -27,17 +27,17 @@ export default function RestaurantProfileScreen() {
       title: 'RESTAURANT',
       items: [
         { icon: 'storefront', label: 'Restaurant Info', sub: ownerRestaurant?.name || 'Name, address, cuisine type', route: '/restaurant-account' },
-        { icon: 'schedule', label: 'Operating Hours', sub: 'Set your open/close times', route: '/restaurant-account' },
-        { icon: 'delivery-dining', label: 'Delivery Settings', sub: 'Radius, minimum order', route: '/restaurant-account' },
-        { icon: 'photo-camera', label: 'Photos', sub: 'Cover image, gallery', route: '/restaurant-account' },
+        { icon: 'schedule', label: 'Operating Hours', sub: 'Set your open/close times', route: '/restaurant-hours' },
+        { icon: 'delivery-dining', label: 'Delivery Settings', sub: 'Min order, delivery time', route: '/restaurant-delivery' },
+        { icon: 'photo-camera', label: 'Photos', sub: 'Cover image, gallery', route: '/restaurant-photos' },
       ],
     },
     {
       title: 'ACCOUNT',
       items: [
         { icon: 'person', label: 'Account Details', sub: userProfile?.email || '', route: '/restaurant-account' },
-        { icon: 'account-balance', label: 'Bank Details', sub: 'Payment withdrawal settings', route: '/restaurant-account' },
-        { icon: 'notifications', label: 'Notifications', sub: 'Order alerts, promotions', route: '/restaurant-account' },
+        { icon: 'account-balance', label: 'Bank Details', sub: 'Payment withdrawal settings', route: '/restaurant-bank' },
+        { icon: 'notifications', label: 'Notifications', sub: 'Order alerts, promotions', route: '/restaurant-notifications' },
       ],
     },
     {

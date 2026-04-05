@@ -81,6 +81,11 @@ function RootNavigator() {
         <Stack.Screen name="pending-approval" />
         <Stack.Screen name="restaurant-account" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Account Settings', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
         <Stack.Screen name="restaurant-support" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Help & Support', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-hours" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Operating Hours', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-delivery" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Delivery Settings', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-photos" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Photos', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-bank" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Bank Details', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
+        <Stack.Screen name="restaurant-notifications" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Notifications', headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
         <Stack.Screen name="edit-profile" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Edit Profile', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
         <Stack.Screen name="delivery-addresses" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Delivery Addresses', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />
         <Stack.Screen name="payment-methods" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: 'Payment Methods', headerTintColor: theme.textPrimary, headerStyle: { backgroundColor: '#FFF' } }} />

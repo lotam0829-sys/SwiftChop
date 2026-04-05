@@ -69,11 +69,18 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Fetch the restaurant address
+    // Fetch the restaurant address and customer location
     const { data: restaurant } = await supabaseAdmin
       .from('restaurants')
-      .select('name, address')
+      .select('name, address, latitude, longitude')
       .eq('id', order.restaurant_id)
+      .single();
+
+    // Fetch customer location for Shipday delivery coordinates
+    const { data: customerProfile } = await supabaseAdmin
+      .from('user_profiles')
+      .select('latitude, longitude')
+      .eq('id', order.customer_id)
       .single();
 
     // Build Shipday order payload
@@ -102,6 +109,14 @@ Deno.serve(async (req: Request) => {
       totalOrderCost: order.total / 100,
       deliveryInstruction: order.delivery_note || '',
       paymentMethod: order.payment_method === 'cash' ? 'cash' : 'credit_card',
+      ...(restaurant?.latitude && restaurant?.longitude ? {
+        pickupLatitude: restaurant.latitude,
+        pickupLongitude: restaurant.longitude,
+      } : {}),
+      ...(customerProfile?.latitude && customerProfile?.longitude ? {
+        deliveryLatitude: customerProfile.latitude,
+        deliveryLongitude: customerProfile.longitude,
+      } : {}),
     };
 
     console.log('Sending to Shipday:', JSON.stringify(shipdayPayload));
