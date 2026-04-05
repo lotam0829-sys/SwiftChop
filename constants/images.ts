@@ -9,6 +9,7 @@ const imageMap: Record<string, any> = {
   foodMoimoi: require('../assets/images/food-moimoi.jpg'),
   emptyOrders: require('../assets/images/empty-orders.jpg'),
   pendingApproval: require('../assets/images/pending-approval.jpg'),
+  logo: require('../assets/images/logo.jpeg'),
 };
 
 export const getImage = (key: string): any => imageMap[key] || imageMap.heroJollof;

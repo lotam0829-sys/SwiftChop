@@ -105,8 +105,8 @@ Deno.serve(async (req: Request) => {
       tips: 0,
       tax: 0,
       discountAmount: 0,
-      deliveryFee: order.delivery_fee / 100, // Convert from Naira integer to Shipday's decimal format
-      totalOrderCost: order.total / 100,
+      deliveryFee: order.delivery_fee,
+      totalOrderCost: order.total,
       deliveryInstruction: order.delivery_note || '',
       paymentMethod: order.payment_method === 'cash' ? 'cash' : 'credit_card',
       ...(restaurant?.latitude && restaurant?.longitude ? {

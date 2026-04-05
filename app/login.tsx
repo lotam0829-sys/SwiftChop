@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
+import { getImage } from '../constants/images';
 import { useAuth, useAlert } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
 import { useApp } from '../contexts/AppContext';
@@ -106,6 +108,11 @@ export default function LoginScreen() {
                 {userRole === 'customer' ? 'Customer' : 'Restaurant'}
               </Text>
             </View>
+            <Image
+              source={getImage('logo')}
+              style={{ width: 48, height: 48, borderRadius: 12, marginBottom: 16 }}
+              contentFit="cover"
+            />
             <Text style={styles.title}>Welcome back</Text>
             <Text style={styles.subtitle}>Sign in to your SwiftChop account</Text>
           </View>

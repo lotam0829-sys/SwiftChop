@@ -718,7 +718,7 @@ export default function OnboardingScreen() {
             </View>
             <Text style={styles.feeCardTitle}>Delivery Fee</Text>
             <Text style={styles.feeCardDesc}>
-              Delivery fees are calculated dynamically based on the distance between your restaurant and the customer. This fee is paid by the customer, not deducted from your earnings. Shipday handles the delivery logistics and distance calculation.
+              Delivery fees are calculated dynamically based on the distance between your restaurant and the customer. This fee is paid by the customer, not deducted from your earnings. Our smart routing system handles the delivery logistics and distance calculation.
             </Text>
           </View>
 

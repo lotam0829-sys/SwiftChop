@@ -7,6 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
+import { getImage } from '../constants/images';
 import PrimaryButton from '../components/ui/PrimaryButton';
 
 export default function WelcomeScreen() {
@@ -34,9 +35,12 @@ export default function WelcomeScreen() {
       <View style={[styles.content, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24 }]}>
         {/* Logo */}
         <View style={styles.logoRow}>
-          <View style={styles.logoBadge}>
-            <MaterialIcons name="bolt" size={22} color="#FFF" />
-          </View>
+          <Image
+            source={getImage('logo')}
+            style={styles.logoBadge}
+            contentFit="cover"
+            transition={200}
+          />
         </View>
 
         {/* Spacer */}
@@ -76,8 +80,7 @@ const styles = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: 24, justifyContent: 'flex-end' },
   logoRow: { flexDirection: 'row' },
   logoBadge: {
-    width: 42, height: 42, borderRadius: 12,
-    backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center',
+    width: 52, height: 52, borderRadius: 14,
   },
   brand: { fontSize: 42, fontWeight: '800', color: '#FFF', marginBottom: 8 },
   tagline: { fontSize: 16, color: 'rgba(255,255,255,0.75)', lineHeight: 24, marginBottom: 36 },
