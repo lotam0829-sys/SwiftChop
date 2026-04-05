@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AlertProvider, AuthProvider, useAuth } from '@/template';
@@ -12,6 +12,7 @@ function RootNavigator() {
   const { userProfile } = useApp();
   const segments = useSegments();
   const router = useRouter();
+  const hasRouted = useRef(false);
 
   const isAuthenticated = !!user;
   const isLoading = authLoading;
@@ -23,13 +24,22 @@ function RootNavigator() {
     const isAuthScreen = ['welcome', 'login', 'signup'].includes(first);
     const isPending = first === 'pending-approval';
 
+    // Not authenticated → go to welcome (unless already on an auth screen)
     if (!isAuthenticated && !isAuthScreen) {
       router.replace('/welcome');
       return;
     }
 
+    // Authenticated but on an auth screen → route based on role
     if (isAuthenticated && isAuthScreen) {
-      if (userProfile?.role === 'restaurant') {
+      // CRITICAL: Wait for profile to be loaded AND role to be set.
+      // If role is 'pending_role', the signup flow is still setting up the profile.
+      if (!userProfile || userProfile.role === 'pending_role') {
+        // Don't route yet — wait for profile update
+        return;
+      }
+
+      if (userProfile.role === 'restaurant') {
         router.replace(userProfile.is_approved ? '/(restaurant)' : '/pending-approval');
       } else {
         router.replace('/(tabs)');
@@ -37,10 +47,11 @@ function RootNavigator() {
       return;
     }
 
+    // Restaurant user got approved → redirect from pending to dashboard
     if (isAuthenticated && isPending && userProfile?.role === 'restaurant' && userProfile.is_approved) {
       router.replace('/(restaurant)');
     }
-  }, [isLoading, isAuthenticated, userProfile?.is_approved, userProfile?.role, segments]);
+  }, [isLoading, isAuthenticated, userProfile?.role, userProfile?.is_approved, segments]);
 
   if (isLoading) {
     return (

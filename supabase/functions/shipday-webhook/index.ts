@@ -1,25 +1,27 @@
 import { corsHeaders } from '../_shared/cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// Map Shipday webhook events to our internal order statuses
+// Map Shipday webhook events to internal order statuses
+// STRICT: Only advance status based on real Shipday events
 function mapShipdayStatus(event: string, orderStatus: string): string | null {
-  // Event-based mapping (higher priority)
+  // Event-based mapping (primary)
   const eventMap: Record<string, string> = {
-    'ORDER_ASSIGNED': 'confirmed',
-    'ORDER_ACCEPTED_AND_STARTED': 'preparing',
-    'ORDER_PIKEDUP': 'on_the_way',
-    'ORDER_ONTHEWAY': 'on_the_way',
-    'ORDER_COMPLETED': 'delivered',
-    'ORDER_FAILED': 'cancelled',
-    'ORDER_INCOMPLETE': 'cancelled',
+    'ORDER_INSERTED': 'pending',           // Order received by Shipday
+    'ORDER_ASSIGNED': 'confirmed',         // Driver assigned
+    'ORDER_ACCEPTED_AND_STARTED': 'preparing', // Driver accepted and started
+    'ORDER_PIKEDUP': 'on_the_way',         // Driver picked up food
+    'ORDER_ONTHEWAY': 'on_the_way',        // Driver on the way
+    'ORDER_COMPLETED': 'delivered',        // Delivery completed
+    'ORDER_FAILED': 'cancelled',           // Delivery failed
+    'ORDER_INCOMPLETE': 'cancelled',       // Delivery incomplete
   };
 
   if (eventMap[event]) return eventMap[event];
 
-  // Fallback: order_status based mapping
+  // Fallback: order_status field mapping
   const statusMap: Record<string, string> = {
-    'NOT_ASSIGNED': 'confirmed',
-    'NOT_ACCEPTED': 'confirmed',
+    'NOT_ASSIGNED': 'pending',
+    'NOT_ACCEPTED': 'pending',
     'NOT_STARTED_YET': 'confirmed',
     'STARTED': 'preparing',
     'PICKED_UP': 'on_the_way',
@@ -40,7 +42,6 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json();
-
     console.log('Shipday webhook received:', JSON.stringify(body));
 
     const {
@@ -48,7 +49,6 @@ Deno.serve(async (req: Request) => {
       order_status,
       order,
       carrier,
-      delivery_details,
     } = body;
 
     if (!order?.order_number) {
@@ -64,7 +64,7 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Map Shipday status to our internal status
+    // Map status strictly from Shipday events
     const newStatus = mapShipdayStatus(event, order_status);
     if (!newStatus) {
       console.log(`Ignoring event ${event} with status ${order_status}`);
@@ -80,7 +80,7 @@ Deno.serve(async (req: Request) => {
       updated_at: new Date().toISOString(),
     };
 
-    // Extract carrier info if available
+    // Extract carrier info only when actually present
     if (carrier?.name) {
       updatePayload.shipday_carrier_name = carrier.name;
     }
@@ -96,10 +96,16 @@ Deno.serve(async (req: Request) => {
       updatePayload.shipday_eta = `${diffMinutes} min`;
     }
 
-    // Extract Shipday order ID
+    // Extract Shipday order ID and tracking URL from response
     if (order?.id) {
       updatePayload.shipday_order_id = order.id;
-      updatePayload.shipday_tracking_url = `https://app.shipday.com/track/${order.id}`;
+    }
+
+    // Only set tracking URL if Shipday provides a real one in the webhook payload
+    // Check multiple possible field names from Shipday's response
+    const trackingLink = order?.trackingLink || order?.tracking_link || order?.trackingUrl || body?.trackingLink;
+    if (trackingLink && typeof trackingLink === 'string' && trackingLink.startsWith('http')) {
+      updatePayload.shipday_tracking_url = trackingLink;
     }
 
     console.log(`Updating order ${order.order_number} to status: ${newStatus}`, JSON.stringify(updatePayload));

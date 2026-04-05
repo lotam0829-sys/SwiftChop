@@ -25,7 +25,7 @@ export interface CartItem {
 }
 
 interface AppContextType {
-  // Auth (from template)
+  // Auth
   isLoading: boolean;
   isAuthenticated: boolean;
   userProfile: DbUserProfile | null;
@@ -96,7 +96,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Load user profile when auth user changes
   useEffect(() => {
     if (user?.id) {
-      loadProfileAndSetup(user.id);
+      loadProfile(user.id);
     } else {
       setUserProfile(null);
       setOwnerRestaurant(null);
@@ -125,9 +125,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem('swiftchop_cart', JSON.stringify(cart));
   }, [cart]);
 
-  // Load role-specific data when profile loads
+  // Load role-specific data when profile loads with a REAL role (not pending_role)
   useEffect(() => {
-    if (!userProfile) return;
+    if (!userProfile || userProfile.role === 'pending_role') return;
     if (userProfile.role === 'customer') {
       refreshCustomerOrders();
     } else if (userProfile.role === 'restaurant') {
@@ -135,27 +135,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [userProfile?.id, userProfile?.role]);
 
-  const loadProfileAndSetup = async (userId: string) => {
+  const loadProfile = async (userId: string) => {
     const { data } = await fetchUserProfile(userId);
     if (data) {
       setUserProfile(data);
-      // Auto-create restaurant entry if restaurant owner and none exists
-      if (data.role === 'restaurant' && data.restaurant_name) {
-        const { data: existing } = await fetchOwnerRestaurant(userId);
-        if (!existing) {
-          await createRestaurantForOwner(userId, data.restaurant_name);
-        }
-      }
     }
   };
 
-  const loadProfile = async (userId: string) => {
-    const { data } = await fetchUserProfile(userId);
-    if (data) setUserProfile(data);
-  };
-
   const refreshProfile = async () => {
-    if (user?.id) await loadProfile(user.id);
+    if (user?.id) {
+      // Force re-fetch from database
+      const { data } = await fetchUserProfile(user.id);
+      if (data) {
+        setUserProfile(data);
+      }
+    }
   };
 
   const refreshRestaurants = async () => {
@@ -217,9 +211,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshOrder = async (orderId: string): Promise<DbOrder | null> => {
     const { data } = await fetchOrderById(orderId);
     if (data) {
-      // Update in customer orders list
       setCustomerOrders(prev => prev.map(o => o.id === orderId ? data : o));
-      // Update in restaurant orders list
       setRestaurantOrders(prev => prev.map(o => o.id === orderId ? data : o));
     }
     return data;
@@ -237,6 +229,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const serviceFee = 200;
     const total = cartTotal + deliveryFee + serviceFee;
 
+    // Start as 'pending' — status will only advance via Shipday webhooks or restaurant action
     const { data, error } = await createOrder(
       {
         order_number: orderNumber,
@@ -248,7 +241,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         delivery_fee: deliveryFee,
         service_fee: serviceFee,
         total,
-        status: 'confirmed',
+        status: 'pending',
         delivery_address: deliveryAddress,
         delivery_note: note,
         payment_method: paymentMethod || 'card',
@@ -266,7 +259,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     if (data) {
       setCart([]);
-      // Add to local state immediately
       const orderWithItems: DbOrder = {
         ...data,
         order_items: cart.map(ci => ({
@@ -286,7 +278,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           console.log('Shipday dispatch note:', shipdayError);
         } else if (shipdayResult) {
           console.log('Shipday dispatch success:', shipdayResult);
-          // Update local order with tracking URL
           if (shipdayResult.trackingUrl) {
             setCustomerOrders(prev =>
               prev.map(o => o.id === data.id
@@ -308,12 +299,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshRestaurantData = async () => {
     if (!user?.id) return;
     setLoadingRestaurantData(true);
-    
-    // Fetch owner's restaurant
+
     const { data: restData } = await fetchOwnerRestaurant(user.id);
     if (restData) {
       setOwnerRestaurant(restData);
-      // Fetch orders and menu for this restaurant
       const [ordersResult, menuResult] = await Promise.all([
         fetchRestaurantOrders(restData.id),
         fetchMenuItems(restData.id),

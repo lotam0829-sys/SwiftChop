@@ -48,7 +48,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Use service role to read order data (bypasses RLS)
+    // Use service role to read order data
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -77,6 +77,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     // Build Shipday order payload
+    // Prices are stored as integers in Naira (not kobo), so no division needed
     const shipdayPayload = {
       orderNumber: order.order_number,
       customerName: order.customer_name || 'SwiftChop Customer',
@@ -91,14 +92,14 @@ Deno.serve(async (req: Request) => {
       orderItem: (order.order_items || []).map((item: any) => ({
         name: item.name,
         quantity: item.quantity,
-        unitPrice: item.price / 100, // Convert from kobo to naira if stored as integer
+        unitPrice: item.price,
         detail: '',
       })),
       tips: 0,
       tax: 0,
       discountAmount: 0,
-      deliveryFee: order.delivery_fee / 100,
-      totalOrderCost: order.total / 100,
+      deliveryFee: order.delivery_fee,
+      totalOrderCost: order.total,
       deliveryInstruction: order.delivery_note || '',
       paymentMethod: order.payment_method === 'cash' ? 'cash' : 'credit_card',
     };
@@ -134,20 +135,29 @@ Deno.serve(async (req: Request) => {
 
     const shipdayOrderId = shipdayData.orderId || shipdayData.id || null;
 
-    // Build tracking URL (Shipday provides tracking via their dashboard)
-    // The tracking link format: https://app.shipday.com/track/{orderId}
-    const trackingUrl = shipdayOrderId
-      ? `https://app.shipday.com/track/${shipdayOrderId}`
-      : null;
+    // Extract tracking URL from Shipday response if available
+    // Shipday may return a trackingLink or trackingUrl field
+    let trackingUrl = shipdayData.trackingLink || shipdayData.trackingUrl || shipdayData.tracking_url || null;
+
+    // Only store valid HTTP URLs
+    if (trackingUrl && !trackingUrl.startsWith('http')) {
+      trackingUrl = null;
+    }
 
     // Update order with Shipday data
+    const updatePayload: Record<string, any> = {
+      shipday_order_id: shipdayOrderId,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Only set tracking URL if we have a valid one
+    if (trackingUrl) {
+      updatePayload.shipday_tracking_url = trackingUrl;
+    }
+
     const { error: updateError } = await supabaseAdmin
       .from('orders')
-      .update({
-        shipday_order_id: shipdayOrderId,
-        shipday_tracking_url: trackingUrl,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', orderId);
 
     if (updateError) {

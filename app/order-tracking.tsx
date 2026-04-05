@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, Linking } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Linking, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -7,8 +7,11 @@ import Animated, { useSharedValue, useAnimatedStyle, withTiming, withRepeat, wit
 import { theme } from '../constants/theme';
 import { useApp } from '../contexts/AppContext';
 
+// Statuses are driven STRICTLY by Shipday webhooks + restaurant actions
+// pending → confirmed (restaurant accepts) → preparing → on_the_way (Shipday pickup) → delivered (Shipday complete)
 const steps = [
-  { key: 'confirmed', icon: 'check-circle', label: 'Order Confirmed', sub: 'Restaurant received your order' },
+  { key: 'pending', icon: 'hourglass-top', label: 'Order Placed', sub: 'Waiting for restaurant to accept' },
+  { key: 'confirmed', icon: 'check-circle', label: 'Confirmed', sub: 'Restaurant accepted your order' },
   { key: 'preparing', icon: 'restaurant', label: 'Preparing', sub: 'Chef is making your food' },
   { key: 'on_the_way', icon: 'delivery-dining', label: 'On the Way', sub: 'Rider is heading to you' },
   { key: 'delivered', icon: 'done-all', label: 'Delivered', sub: 'Enjoy your meal!' },
@@ -41,7 +44,7 @@ export default function OrderTrackingScreen() {
     return () => clearInterval(interval);
   }, [statusIndex]);
 
-  // Poll for order status updates from Shipday webhooks (every 10s)
+  // Poll for order status updates (every 10s)
   useEffect(() => {
     if (!order || order.status === 'delivered' || order.status === 'cancelled') return;
 
@@ -71,15 +74,37 @@ export default function OrderTrackingScreen() {
 
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulseScale.value }] }));
 
-  const handleOpenTracking = useCallback(() => {
-    if (order?.shipday_tracking_url) {
-      Linking.openURL(order.shipday_tracking_url);
+  const handleOpenTracking = useCallback(async () => {
+    const url = order?.shipday_tracking_url;
+    if (!url) return;
+
+    // Validate URL format before opening
+    try {
+      const isValid = url.startsWith('http://') || url.startsWith('https://');
+      if (!isValid) {
+        console.warn('Invalid tracking URL:', url);
+        return;
+      }
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        console.warn('Cannot open tracking URL:', url);
+      }
+    } catch (err) {
+      console.error('Failed to open tracking URL:', err);
     }
   }, [order?.shipday_tracking_url]);
 
   if (!order) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Order not found</Text></View>;
   }
+
+  // Only show tracking link if it exists and is a valid HTTP URL
+  const hasValidTrackingUrl = order.shipday_tracking_url
+    && (order.shipday_tracking_url.startsWith('http://') || order.shipday_tracking_url.startsWith('https://'))
+    && !order.shipday_tracking_url.includes('undefined')
+    && !order.shipday_tracking_url.includes('null');
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
@@ -91,88 +116,102 @@ export default function OrderTrackingScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <View style={styles.successBanner}>
-        <View style={styles.successIcon}><MaterialIcons name="check" size={28} color="#FFF" /></View>
-        <Text style={styles.successTitle}>Order Placed!</Text>
-        <Text style={styles.successSub}>Estimated delivery: {order.shipday_eta || order.estimated_delivery}</Text>
-      </View>
-
-      {/* Shipday Live Tracking Link */}
-      {order.shipday_tracking_url ? (
-        <Pressable onPress={handleOpenTracking} style={styles.trackingLinkBtn}>
-          <MaterialIcons name="map" size={20} color="#FFF" />
-          <Text style={styles.trackingLinkText}>Track Live on Map</Text>
-          <MaterialIcons name="open-in-new" size={16} color="rgba(255,255,255,0.7)" />
-        </Pressable>
-      ) : null}
-
-      {/* Carrier info */}
-      {order.shipday_carrier_name ? (
-        <View style={styles.carrierCard}>
-          <View style={styles.carrierAvatar}>
-            <MaterialIcons name="person" size={24} color={theme.primary} />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.successBanner}>
+          <View style={[styles.successIcon, { backgroundColor: order.status === 'pending' ? theme.warning : theme.success }]}>
+            <MaterialIcons name={order.status === 'pending' ? 'hourglass-top' : 'check'} size={28} color="#FFF" />
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.carrierName}>{order.shipday_carrier_name}</Text>
-            <Text style={styles.carrierLabel}>Your delivery rider</Text>
-          </View>
-          {order.shipday_carrier_phone ? (
-            <Pressable
-              onPress={() => Linking.openURL(`tel:${order.shipday_carrier_phone}`)}
-              style={styles.callBtn}
-            >
-              <MaterialIcons name="phone" size={20} color={theme.primary} />
-            </Pressable>
-          ) : null}
+          <Text style={styles.successTitle}>
+            {order.status === 'pending' ? 'Order Placed!' : order.status === 'delivered' ? 'Order Delivered!' : 'Order in Progress'}
+          </Text>
+          <Text style={styles.successSub}>
+            {order.status === 'pending'
+              ? 'Waiting for the restaurant to confirm'
+              : `Estimated delivery: ${order.shipday_eta || order.estimated_delivery}`}
+          </Text>
         </View>
-      ) : null}
 
-      <View style={styles.timeline}>
-        {steps.map((step, idx) => {
-          const isCompleted = idx <= currentStep;
-          const isCurrent = idx === currentStep;
-          return (
-            <View key={step.key} style={styles.timelineItem}>
-              <View style={styles.timelineLeft}>
-                <Animated.View style={[
-                  styles.timelineDot,
-                  isCompleted && { backgroundColor: theme.primary },
-                  isCurrent ? pulseStyle : undefined,
-                ]}>
-                  <MaterialIcons name={step.icon as any} size={20} color={isCompleted ? '#FFF' : theme.textMuted} />
-                </Animated.View>
-                {idx < steps.length - 1 ? <View style={[styles.timelineLine, isCompleted && { backgroundColor: theme.primary }]} /> : null}
-              </View>
-              <View style={styles.timelineContent}>
-                <Text style={[styles.timelineLabel, isCompleted && { color: theme.textPrimary, fontWeight: '700' }]}>{step.label}</Text>
-                <Text style={styles.timelineSub}>{step.sub}</Text>
-              </View>
+        {/* Shipday Live Tracking Link - only if valid URL exists */}
+        {hasValidTrackingUrl ? (
+          <Pressable onPress={handleOpenTracking} style={styles.trackingLinkBtn}>
+            <MaterialIcons name="map" size={20} color="#FFF" />
+            <Text style={styles.trackingLinkText}>Track Live on Map</Text>
+            <MaterialIcons name="open-in-new" size={16} color="rgba(255,255,255,0.7)" />
+          </Pressable>
+        ) : null}
+
+        {/* Carrier info - only when driver is actually assigned */}
+        {order.shipday_carrier_name ? (
+          <View style={styles.carrierCard}>
+            <View style={styles.carrierAvatar}>
+              <MaterialIcons name="person" size={24} color={theme.primary} />
             </View>
-          );
-        })}
-      </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.carrierName}>{order.shipday_carrier_name}</Text>
+              <Text style={styles.carrierLabel}>Your delivery rider</Text>
+            </View>
+            {order.shipday_carrier_phone ? (
+              <Pressable
+                onPress={() => Linking.openURL(`tel:${order.shipday_carrier_phone}`)}
+                style={styles.callBtn}
+              >
+                <MaterialIcons name="phone" size={20} color={theme.primary} />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
 
-      <View style={styles.orderInfo}>
-        <Text style={styles.infoTitle}>Order Details</Text>
-        <View style={styles.infoRow}><MaterialIcons name="storefront" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.restaurant_name}</Text></View>
-        <View style={styles.infoRow}><MaterialIcons name="location-on" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.delivery_address}</Text></View>
-        <View style={styles.infoRow}><MaterialIcons name="receipt" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.order_number}</Text></View>
-        <View style={styles.divider} />
-        {(order.order_items || []).map((item, idx) => (
-          <Text key={idx} style={styles.itemText}>{item.quantity}x {item.name} — ₦{(item.price * item.quantity).toLocaleString()}</Text>
-        ))}
-        <View style={styles.divider} />
-        <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>Total paid</Text>
-          <Text style={styles.totalValue}>₦{order.total.toLocaleString()}</Text>
+        <View style={styles.timeline}>
+          {steps.map((step, idx) => {
+            const isCompleted = idx <= currentStep;
+            const isCurrent = idx === currentStep;
+            const isCancelled = order.status === 'cancelled';
+            return (
+              <View key={step.key} style={styles.timelineItem}>
+                <View style={styles.timelineLeft}>
+                  <Animated.View style={[
+                    styles.timelineDot,
+                    isCompleted && !isCancelled && { backgroundColor: theme.primary },
+                    isCancelled && { backgroundColor: theme.error },
+                    isCurrent && !isCancelled ? pulseStyle : undefined,
+                  ]}>
+                    <MaterialIcons name={step.icon as any} size={20} color={isCompleted ? '#FFF' : theme.textMuted} />
+                  </Animated.View>
+                  {idx < steps.length - 1 ? <View style={[styles.timelineLine, isCompleted && !isCancelled && { backgroundColor: theme.primary }]} /> : null}
+                </View>
+                <View style={styles.timelineContent}>
+                  <Text style={[styles.timelineLabel, isCompleted && { color: theme.textPrimary, fontWeight: '700' }]}>{step.label}</Text>
+                  <Text style={styles.timelineSub}>{step.sub}</Text>
+                </View>
+              </View>
+            );
+          })}
         </View>
-      </View>
 
-      <View style={{ flex: 1 }} />
+        <View style={styles.orderInfo}>
+          <Text style={styles.infoTitle}>Order Details</Text>
+          <View style={styles.infoRow}><MaterialIcons name="storefront" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.restaurant_name}</Text></View>
+          <View style={styles.infoRow}><MaterialIcons name="location-on" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.delivery_address}</Text></View>
+          <View style={styles.infoRow}><MaterialIcons name="receipt" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.order_number}</Text></View>
+          <View style={styles.divider} />
+          {(order.order_items || []).map((item, idx) => (
+            <Text key={idx} style={styles.itemText}>{item.quantity}x {item.name} — ₦{(item.price * item.quantity).toLocaleString()}</Text>
+          ))}
+          <View style={styles.divider} />
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>Total paid</Text>
+            <Text style={styles.totalValue}>₦{order.total.toLocaleString()}</Text>
+          </View>
+        </View>
 
-      <Pressable onPress={() => router.replace('/(tabs)')} style={[styles.homeBtn, { marginBottom: insets.bottom + 16 }]}>
-        <Text style={styles.homeBtnText}>Back to Home</Text>
-      </Pressable>
+        <Pressable onPress={() => router.replace('/(tabs)')} style={styles.homeBtn}>
+          <Text style={styles.homeBtnText}>Back to Home</Text>
+        </Pressable>
+      </ScrollView>
     </View>
   );
 }
@@ -183,9 +222,9 @@ const styles = StyleSheet.create({
   backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: theme.textPrimary },
   successBanner: { alignItems: 'center', paddingVertical: 24, backgroundColor: theme.primaryFaint, borderRadius: 20, marginBottom: 16 },
-  successIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.success, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  successIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   successTitle: { fontSize: 22, fontWeight: '700', color: theme.textPrimary },
-  successSub: { fontSize: 14, color: theme.textSecondary, marginTop: 4 },
+  successSub: { fontSize: 14, color: theme.textSecondary, marginTop: 4, textAlign: 'center', paddingHorizontal: 24 },
   trackingLinkBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: theme.primary, paddingVertical: 14, borderRadius: 14, marginBottom: 16 },
   trackingLinkText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   carrierCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.backgroundSecondary, borderRadius: 14, padding: 14, marginBottom: 16 },
@@ -201,7 +240,7 @@ const styles = StyleSheet.create({
   timelineContent: { flex: 1, paddingBottom: 20 },
   timelineLabel: { fontSize: 15, fontWeight: '500', color: theme.textMuted },
   timelineSub: { fontSize: 13, color: theme.textMuted, marginTop: 2 },
-  orderInfo: { backgroundColor: theme.backgroundSecondary, borderRadius: 16, padding: 18 },
+  orderInfo: { backgroundColor: theme.backgroundSecondary, borderRadius: 16, padding: 18, marginBottom: 20 },
   infoTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary, marginBottom: 14 },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   infoText: { fontSize: 14, color: theme.textSecondary, flex: 1 },
@@ -210,6 +249,6 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between' },
   totalLabel: { fontSize: 15, fontWeight: '600', color: theme.textPrimary },
   totalValue: { fontSize: 18, fontWeight: '700', color: theme.primary },
-  homeBtn: { backgroundColor: theme.backgroundDark, borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
+  homeBtn: { backgroundColor: theme.backgroundDark, borderRadius: 16, paddingVertical: 18, alignItems: 'center', marginTop: 4 },
   homeBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
 });
