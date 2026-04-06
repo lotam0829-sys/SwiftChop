@@ -372,6 +372,7 @@ export default function OnboardingScreen() {
         is_approved: false,
         business_certificate_url: certificateUrl,
         bank_name: bankName.trim(),
+        bank_code: selectedBankCode,
         bank_account_number: bankAccountNumber.trim(),
         bank_account_name: bankAccountName.trim(),
       } as any);
@@ -471,6 +472,7 @@ export default function OnboardingScreen() {
         avatar_url: avatarUrl,
         is_approved: false,
         bank_name: bankName.trim(),
+        bank_code: selectedBankCode,
         bank_account_number: bankAccountNumber.trim(),
         bank_account_name: bankAccountName.trim(),
       } as any);

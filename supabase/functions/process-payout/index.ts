@@ -4,14 +4,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 /**
  * Process Payout Edge Function
  * 
- * Called after an order is delivered (by shipday-webhook or manually).
+ * Called after an order is delivered (by shipday-webhook).
  * 1. Calculates platform fee from restaurant's order subtotal
- * 2. Creates Paystack Transfer Recipient for restaurant (if not cached)
- * 3. Creates Paystack Transfer Recipient for rider (if assigned)
+ * 2. Creates Paystack Transfer Recipient for restaurant owner
+ * 3. Creates Paystack Transfer Recipient for rider
  * 4. Initiates Paystack Transfer to restaurant (subtotal - platform fee)
  * 5. Initiates Paystack Transfer to rider (base + per-km rate)
  * 6. Records rider payment in rider_payments table
- * 7. Updates order with payout status
  */
 
 const PLATFORM_FEE_PERCENT = 10; // 10% platform commission on food subtotal
@@ -22,6 +21,40 @@ function generateReference(prefix: string): string {
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).substring(2, 10);
   return `${prefix}_${timestamp}_${random}`.toLowerCase().substring(0, 50);
+}
+
+async function resolveBankCode(
+  paystackSecret: string,
+  bankName: string
+): Promise<string | null> {
+  try {
+    const response = await fetch('https://api.paystack.co/bank?currency=NGN', {
+      headers: { 'Authorization': `Bearer ${paystackSecret}` },
+    });
+    const result = await response.json();
+    if (!result.status || !result.data) return null;
+
+    const nameLower = bankName.toLowerCase().trim();
+    
+    // Exact match first
+    const exact = result.data.find((b: any) => b.name.toLowerCase() === nameLower);
+    if (exact) return exact.code;
+
+    // Partial match: check if bank name contains Paystack bank name or vice versa
+    const partial = result.data.find((b: any) => {
+      const bName = b.name.toLowerCase();
+      return nameLower.includes(bName) || bName.includes(nameLower);
+    });
+    if (partial) return partial.code;
+
+    // Special case: "Test Bank (Paystack)" -> code 001
+    if (nameLower.includes('test bank')) return '001';
+
+    return null;
+  } catch (err) {
+    console.error('Bank code resolution error:', err);
+    return null;
+  }
 }
 
 async function createTransferRecipient(
@@ -51,7 +84,7 @@ async function createTransferRecipient(
       console.log(`Transfer recipient created: ${result.data.recipient_code} for ${name}`);
       return { recipient_code: result.data.recipient_code };
     }
-    console.error('Failed to create transfer recipient:', result.message);
+    console.error('Failed to create transfer recipient:', JSON.stringify(result));
     return null;
   } catch (err) {
     console.error('Transfer recipient error:', err);
@@ -61,7 +94,7 @@ async function createTransferRecipient(
 
 async function initiateTransfer(
   paystackSecret: string,
-  amount: number, // in kobo
+  amount: number,
   recipientCode: string,
   reason: string,
   reference: string
@@ -90,12 +123,36 @@ async function initiateTransfer(
         status: result.data.status,
       };
     }
-    console.error('Transfer initiation failed:', result.message);
+    console.error('Transfer initiation failed:', JSON.stringify(result));
     return null;
   } catch (err) {
     console.error('Transfer error:', err);
     return null;
   }
+}
+
+async function getBankCodeForProfile(
+  profile: any,
+  paystackSecret: string
+): Promise<string | null> {
+  // 1. Use stored bank_code if available
+  if (profile.bank_code) {
+    console.log(`Using stored bank_code: ${profile.bank_code}`);
+    return profile.bank_code;
+  }
+
+  // 2. Fallback: resolve from bank_name via Paystack API
+  if (profile.bank_name) {
+    console.log(`Resolving bank code from name: ${profile.bank_name}`);
+    const code = await resolveBankCode(paystackSecret, profile.bank_name);
+    if (code) {
+      console.log(`Resolved bank code: ${code} for ${profile.bank_name}`);
+      return code;
+    }
+    console.error(`Could not resolve bank code for: ${profile.bank_name}`);
+  }
+
+  return null;
 }
 
 Deno.serve(async (req: Request) => {
@@ -151,91 +208,73 @@ Deno.serve(async (req: Request) => {
     };
 
     // 2. Calculate restaurant payout (subtotal minus platform fee)
-    const platformFee = Math.round(order.subtotal * (PLATFORM_FEE_PERCENT / 100)); // in lowest currency unit (kobo assumed from DB)
-    const restaurantPayout = order.subtotal - platformFee; // Amount in same unit as stored
+    const platformFee = Math.round(order.subtotal * (PLATFORM_FEE_PERCENT / 100));
+    const restaurantPayout = order.subtotal - platformFee;
 
     console.log(`Platform fee: ${platformFee}, Restaurant payout: ${restaurantPayout}`);
 
-    // 3. Fetch restaurant owner profile for bank details
-    const { data: restaurantOwner, error: ownerError } = await supabaseAdmin
-      .from('user_profiles')
-      .select('id, bank_name, bank_account_number, bank_account_name, paystack_subaccount_code, username, email')
-      .eq('id', (await supabaseAdmin
-        .from('restaurants')
-        .select('owner_id')
-        .eq('id', order.restaurant_id)
-        .single()
-      ).data?.owner_id)
+    // 3. Fetch restaurant and owner profile
+    const { data: restaurant } = await supabaseAdmin
+      .from('restaurants')
+      .select('owner_id')
+      .eq('id', order.restaurant_id)
       .single();
 
-    // === RESTAURANT PAYOUT ===
-    if (restaurantOwner && restaurantOwner.bank_account_number) {
-      // Fetch the bank code from the restaurant's stored bank name
-      const { data: restaurant } = await supabaseAdmin
-        .from('restaurants')
-        .select('owner_id')
-        .eq('id', order.restaurant_id)
-        .single();
-
-      // Look up bank code — we need to resolve it from the stored bank name
-      // For now, we create a transfer recipient using account details
-      // First check if we have a stored recipient code or need to create one
-      let restaurantRecipientCode: string | null = null;
-
-      // Get bank code from user profile or resolve it
-      const { data: fullProfile } = await supabaseAdmin
+    let restaurantOwner: any = null;
+    if (restaurant?.owner_id) {
+      const { data: ownerData } = await supabaseAdmin
         .from('user_profiles')
         .select('*')
-        .eq('id', restaurantOwner.id)
+        .eq('id', restaurant.owner_id)
         .single();
+      restaurantOwner = ownerData;
+    }
 
-      if (fullProfile?.bank_account_number && fullProfile?.bank_name) {
-        // We need the bank code — query Paystack for bank list to match
-        // For efficiency, we store a mapping. Use the code from nigerianBanks constant
-        // Since we are server-side, we resolve bank code via Paystack
-        const banksResponse = await fetch('https://api.paystack.co/bank?currency=NGN', {
-          headers: { 'Authorization': `Bearer ${paystackSecret}` },
-        });
-        const banksResult = await banksResponse.json();
-        const matchedBank = banksResult.data?.find((b: any) =>
-          b.name.toLowerCase().includes(fullProfile.bank_name.toLowerCase()) ||
-          fullProfile.bank_name.toLowerCase().includes(b.name.toLowerCase())
-        );
+    // === RESTAURANT PAYOUT ===
+    if (restaurantOwner?.bank_account_number) {
+      const bankCode = await getBankCodeForProfile(restaurantOwner, paystackSecret);
 
-        if (matchedBank) {
-          const recipient = await createTransferRecipient(
-            paystackSecret,
-            fullProfile.bank_account_name || fullProfile.username || 'Restaurant',
-            fullProfile.bank_account_number,
-            matchedBank.code
-          );
-          if (recipient) {
-            restaurantRecipientCode = recipient.recipient_code;
-          }
-        } else {
-          console.error(`Could not match bank name: ${fullProfile.bank_name}`);
-        }
-      }
-
-      if (restaurantRecipientCode && restaurantPayout > 0) {
-        const ref = generateReference('rest_pay');
-        const transfer = await initiateTransfer(
+      if (bankCode) {
+        const recipient = await createTransferRecipient(
           paystackSecret,
-          restaurantPayout * 100, // Convert to kobo if stored in naira; DB stores in kobo already if price is e.g. 3500 for ₦3,500
-          restaurantRecipientCode,
-          `Payment for order ${order.order_number}`,
-          ref
+          restaurantOwner.bank_account_name || restaurantOwner.username || 'Restaurant',
+          restaurantOwner.bank_account_number,
+          bankCode
         );
 
-        results.restaurant_payout = {
-          amount: restaurantPayout,
-          platform_fee: platformFee,
-          transfer_code: transfer?.transfer_code || null,
-          status: transfer?.status || 'failed',
-          reference: ref,
-        };
+        if (recipient && restaurantPayout > 0) {
+          const ref = generateReference('rest_pay');
+          // DB stores prices in naira (e.g. 3500 = ₦3,500), Paystack expects kobo
+          const amountInKobo = restaurantPayout * 100;
+          const transfer = await initiateTransfer(
+            paystackSecret,
+            amountInKobo,
+            recipient.recipient_code,
+            `Payment for order ${order.order_number}`,
+            ref
+          );
 
-        console.log('Restaurant payout result:', JSON.stringify(results.restaurant_payout));
+          results.restaurant_payout = {
+            amount_naira: restaurantPayout,
+            amount_kobo: amountInKobo,
+            platform_fee: platformFee,
+            transfer_code: transfer?.transfer_code || null,
+            status: transfer?.status || 'failed',
+            reference: ref,
+          };
+
+          // Save bank_code back to profile if not already stored
+          if (!restaurantOwner.bank_code && bankCode) {
+            await supabaseAdmin
+              .from('user_profiles')
+              .update({ bank_code: bankCode })
+              .eq('id', restaurantOwner.id);
+          }
+
+          console.log('Restaurant payout result:', JSON.stringify(results.restaurant_payout));
+        }
+      } else {
+        console.error(`Could not resolve bank code for restaurant owner ${restaurantOwner.id} (bank_name: ${restaurantOwner.bank_name})`);
       }
     } else {
       console.log('Restaurant owner has no bank details, skipping restaurant payout');
@@ -244,149 +283,210 @@ Deno.serve(async (req: Request) => {
     // === RIDER PAYOUT ===
     const isPickupOrder = order.delivery_address?.startsWith('PICKUP:');
     if (!isPickupOrder) {
-      // Find rider — check if there is a carrier assigned via Shipday
-      // The rider might be tracked via shipday_carrier_name/phone, but we need to find the rider user
-      // For now, we look for riders with matching details or use the distance from webhook
       const orderDistance = distance_km || 0;
-      const riderPayAmount = RIDER_BASE_PAY + Math.round(orderDistance * RIDER_PER_KM_PAY); // in kobo
+      const riderPayAmount = RIDER_BASE_PAY + Math.round(orderDistance * RIDER_PER_KM_PAY);
 
       console.log(`Rider pay calculation: base=${RIDER_BASE_PAY} + ${orderDistance}km * ${RIDER_PER_KM_PAY} = ${riderPayAmount} kobo`);
 
-      // Find available rider — for now, query riders who might be assigned
-      // In production, the Shipday webhook would include carrier details that map to a rider
       let riderId: string | null = null;
       let riderProfile: any = null;
 
-      // Try to find rider by Shipday carrier phone
+      // Strategy 1: Match rider by Shipday carrier phone
       if (order.shipday_carrier_phone) {
-        const phone = order.shipday_carrier_phone.replace(/\s/g, '');
-        const { data: riderByPhone } = await supabaseAdmin
+        const rawPhone = order.shipday_carrier_phone.replace(/[\s\-()]/g, '');
+        // Get last 10 digits for matching
+        const last10 = rawPhone.slice(-10);
+        console.log(`Looking for rider by phone, raw: ${rawPhone}, last10: ${last10}`);
+
+        const { data: riders } = await supabaseAdmin
           .from('user_profiles')
           .select('*')
           .eq('role', 'rider')
-          .eq('is_approved', true)
-          .or(`phone.eq.${phone},phone.ilike.%${phone.slice(-10)}%`)
-          .limit(1)
-          .single();
+          .eq('is_approved', true);
 
-        if (riderByPhone) {
-          riderId = riderByPhone.id;
-          riderProfile = riderByPhone;
-          console.log(`Found rider by phone: ${riderByPhone.username} (${riderId})`);
+        if (riders && riders.length > 0) {
+          // Try to match by last 10 digits of phone
+          riderProfile = riders.find((r: any) => {
+            if (!r.phone) return false;
+            const rPhone = r.phone.replace(/[\s\-()]/g, '');
+            const rLast10 = rPhone.slice(-10);
+            return rLast10 === last10 || rPhone === rawPhone;
+          });
+
+          // Fallback: if only one approved rider exists, use them
+          if (!riderProfile && riders.length === 1) {
+            riderProfile = riders[0];
+            console.log(`Single approved rider found, using: ${riderProfile.username} (${riderProfile.id})`);
+          }
+
+          // Fallback: match by Shipday carrier name
+          if (!riderProfile && order.shipday_carrier_name) {
+            const carrierNameLower = order.shipday_carrier_name.toLowerCase().trim();
+            riderProfile = riders.find((r: any) => {
+              if (!r.username) return false;
+              return r.username.toLowerCase().trim() === carrierNameLower ||
+                     r.username.toLowerCase().includes(carrierNameLower) ||
+                     carrierNameLower.includes(r.username.toLowerCase().trim());
+            });
+            if (riderProfile) {
+              console.log(`Matched rider by name: ${riderProfile.username}`);
+            }
+          }
         }
       }
 
-      if (riderId && riderProfile?.bank_account_number && riderProfile?.bank_name) {
-        // Create transfer recipient for rider
-        const banksResponse = await fetch('https://api.paystack.co/bank?currency=NGN', {
-          headers: { 'Authorization': `Bearer ${paystackSecret}` },
-        });
-        const banksResult = await banksResponse.json();
-        const matchedBank = banksResult.data?.find((b: any) =>
-          b.name.toLowerCase().includes(riderProfile.bank_name.toLowerCase()) ||
-          riderProfile.bank_name.toLowerCase().includes(b.name.toLowerCase())
-        );
+      // Strategy 2: If no carrier phone, try by carrier name only
+      if (!riderProfile && order.shipday_carrier_name) {
+        const carrierNameLower = order.shipday_carrier_name.toLowerCase().trim();
+        const { data: riders } = await supabaseAdmin
+          .from('user_profiles')
+          .select('*')
+          .eq('role', 'rider')
+          .eq('is_approved', true);
 
-        let riderRecipientCode: string | null = null;
-        if (matchedBank) {
+        if (riders) {
+          riderProfile = riders.find((r: any) => {
+            if (!r.username) return false;
+            return r.username.toLowerCase().includes(carrierNameLower) ||
+                   carrierNameLower.includes(r.username.toLowerCase().trim());
+          });
+
+          // Last resort: if only one rider exists
+          if (!riderProfile && riders.length === 1) {
+            riderProfile = riders[0];
+            console.log(`Fallback: single approved rider: ${riderProfile.username}`);
+          }
+        }
+      }
+
+      if (riderProfile) {
+        riderId = riderProfile.id;
+        console.log(`Rider identified: ${riderProfile.username} (${riderId})`);
+      }
+
+      if (riderId && riderProfile?.bank_account_number) {
+        const bankCode = await getBankCodeForProfile(riderProfile, paystackSecret);
+
+        if (bankCode) {
           const recipient = await createTransferRecipient(
             paystackSecret,
             riderProfile.bank_account_name || riderProfile.username || 'Rider',
             riderProfile.bank_account_number,
-            matchedBank.code
+            bankCode
           );
+
           if (recipient) {
-            riderRecipientCode = recipient.recipient_code;
-          }
-        }
+            const ref = generateReference('rider_pay');
+            const transfer = await initiateTransfer(
+              paystackSecret,
+              riderPayAmount,
+              recipient.recipient_code,
+              `Delivery payment for order ${order.order_number}`,
+              ref
+            );
 
-        if (riderRecipientCode) {
-          const ref = generateReference('rider_pay');
-          const transfer = await initiateTransfer(
-            paystackSecret,
-            riderPayAmount,
-            riderRecipientCode,
-            `Delivery payment for order ${order.order_number}`,
-            ref
-          );
+            const riderPayNaira = Math.round(riderPayAmount / 100);
 
-          // Record rider payment in DB
-          const { error: riderPayError } = await supabaseAdmin
-            .from('rider_payments')
-            .insert({
-              order_id: order.id,
-              rider_id: riderId,
-              amount: Math.round(riderPayAmount / 100), // Store in naira (divide kobo by 100)
-              distance_km: orderDistance,
-              status: transfer?.status === 'success' ? 'completed' : 'pending',
-              paystack_transfer_code: transfer?.transfer_code || null,
-              paystack_reference: ref,
-            });
-
-          if (riderPayError) {
-            console.error('Failed to record rider payment:', riderPayError.message);
-          }
-
-          results.rider_payout = {
-            rider_id: riderId,
-            amount_kobo: riderPayAmount,
-            amount_naira: Math.round(riderPayAmount / 100),
-            distance_km: orderDistance,
-            transfer_code: transfer?.transfer_code || null,
-            status: transfer?.status || 'failed',
-            reference: ref,
-          };
-
-          // Send push notification to rider about payment
-          if (riderProfile.push_token) {
-            try {
-              await fetch('https://exp.host/--/api/v2/push/send', {
-                method: 'POST',
-                headers: {
-                  'Accept': 'application/json',
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  to: riderProfile.push_token,
-                  sound: 'default',
-                  title: 'Payment Received! 💰',
-                  body: `You earned \u20A6${Math.round(riderPayAmount / 100).toLocaleString()} for delivering order ${order.order_number}.`,
-                  data: { type: 'rider_payment', orderId: order.id },
-                  priority: 'high',
-                  channelId: 'order-updates',
-                }),
+            // Record rider payment in DB
+            const { error: riderPayError } = await supabaseAdmin
+              .from('rider_payments')
+              .insert({
+                order_id: order.id,
+                rider_id: riderId,
+                amount: riderPayNaira,
+                distance_km: orderDistance,
+                status: transfer?.status === 'success' ? 'completed' : 'pending',
+                paystack_transfer_code: transfer?.transfer_code || null,
+                paystack_reference: ref,
               });
-              console.log('Rider payment notification sent');
-            } catch (pushErr) {
-              console.error('Rider push notification failed:', pushErr);
+
+            if (riderPayError) {
+              console.error('Failed to record rider payment:', riderPayError.message);
+            } else {
+              console.log(`Rider payment recorded: ₦${riderPayNaira}`);
             }
+
+            // Save bank_code if not stored
+            if (!riderProfile.bank_code && bankCode) {
+              await supabaseAdmin
+                .from('user_profiles')
+                .update({ bank_code: bankCode })
+                .eq('id', riderId);
+            }
+
+            results.rider_payout = {
+              rider_id: riderId,
+              rider_name: riderProfile.username,
+              amount_kobo: riderPayAmount,
+              amount_naira: riderPayNaira,
+              distance_km: orderDistance,
+              transfer_code: transfer?.transfer_code || null,
+              status: transfer?.status || 'failed',
+              reference: ref,
+            };
+
+            // Send push notification to rider
+            if (riderProfile.push_token) {
+              try {
+                await fetch('https://exp.host/--/api/v2/push/send', {
+                  method: 'POST',
+                  headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    to: riderProfile.push_token,
+                    sound: 'default',
+                    title: 'Payment Received!',
+                    body: `You earned \u20A6${riderPayNaira.toLocaleString()} for delivering order ${order.order_number}.`,
+                    data: { type: 'rider_payment', orderId: order.id },
+                    priority: 'high',
+                    channelId: 'order-updates',
+                  }),
+                });
+                console.log('Rider payment notification sent');
+              } catch (pushErr) {
+                console.error('Rider push notification failed:', pushErr);
+              }
+            }
+
+            console.log('Rider payout result:', JSON.stringify(results.rider_payout));
           }
-
-          console.log('Rider payout result:', JSON.stringify(results.rider_payout));
-        }
-      } else {
-        console.log('No rider found or rider has no bank details, skipping rider payout');
-
-        // Still record a pending payment if we know a rider was assigned
-        if (riderId) {
+        } else {
+          console.error(`Could not resolve bank code for rider ${riderId} (bank_name: ${riderProfile.bank_name})`);
+          // Still record a pending payment even without transfer
+          const riderPayNaira = Math.round(riderPayAmount / 100);
           await supabaseAdmin
             .from('rider_payments')
             .insert({
               order_id: order.id,
               rider_id: riderId,
-              amount: Math.round(riderPayAmount / 100),
+              amount: riderPayNaira,
               distance_km: orderDistance,
               status: 'pending',
             });
+          console.log(`Recorded pending rider payment: ₦${riderPayNaira} (bank code resolution failed)`);
         }
+      } else if (riderId) {
+        // Rider found but no bank details
+        console.log(`Rider ${riderId} has no bank details, recording pending payment`);
+        const riderPayNaira = Math.round(riderPayAmount / 100);
+        await supabaseAdmin
+          .from('rider_payments')
+          .insert({
+            order_id: order.id,
+            rider_id: riderId,
+            amount: riderPayNaira,
+            distance_km: orderDistance,
+            status: 'pending',
+          });
+      } else {
+        console.log('No rider could be identified for this order, skipping rider payout');
       }
     }
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        ...results,
-      }),
+      JSON.stringify({ success: true, ...results }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (err) {
