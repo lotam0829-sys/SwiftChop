@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, Linking, ScrollView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Linking, ScrollView, Platform, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -37,6 +37,8 @@ export default function OrderTrackingScreen() {
 
   const [currentStep, setCurrentStep] = useState(0);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fastPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [webViewLoading, setWebViewLoading] = useState(true);
 
   const statusIndex = steps.findIndex(s => s.key === order?.status);
 
@@ -54,6 +56,7 @@ export default function OrderTrackingScreen() {
     return () => clearInterval(interval);
   }, [statusIndex]);
 
+  // Standard polling every 10s for order status updates
   useEffect(() => {
     if (!order || order.status === 'delivered' || order.status === 'cancelled') return;
 
@@ -67,6 +70,40 @@ export default function OrderTrackingScreen() {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [order?.status, orderId]);
+
+  // Fast polling (every 3s for first 30s) to catch tracking URL from Shipday dispatch
+  // The Shipday dispatch is fire-and-forget, so the tracking URL may arrive shortly after order creation
+  useEffect(() => {
+    if (!order || isPickup || order.status === 'delivered' || order.status === 'cancelled') return;
+
+    // If we already have a valid tracking URL, no need for fast polling
+    if (hasValidUrl(order.shipday_tracking_url)) return;
+
+    let elapsed = 0;
+    const maxDuration = 30000; // 30 seconds of fast polling
+
+    fastPollRef.current = setInterval(() => {
+      elapsed += 3000;
+      if (orderId) {
+        refreshOrder(orderId);
+      }
+      if (elapsed >= maxDuration) {
+        if (fastPollRef.current) clearInterval(fastPollRef.current);
+      }
+    }, 3000);
+
+    return () => {
+      if (fastPollRef.current) clearInterval(fastPollRef.current);
+    };
+  }, [order?.id, isPickup]);
+
+  // Stop fast polling once tracking URL is available
+  useEffect(() => {
+    if (hasValidUrl(order?.shipday_tracking_url) && fastPollRef.current) {
+      clearInterval(fastPollRef.current);
+      fastPollRef.current = null;
+    }
+  }, [order?.shipday_tracking_url]);
 
   const pulseScale = useSharedValue(1);
   useEffect(() => {
@@ -82,10 +119,7 @@ export default function OrderTrackingScreen() {
 
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulseScale.value }] }));
 
-  const hasValidTrackingUrl = !isPickup && order?.shipday_tracking_url
-    && (order.shipday_tracking_url.startsWith('http://') || order.shipday_tracking_url.startsWith('https://'))
-    && !order.shipday_tracking_url.includes('undefined')
-    && !order.shipday_tracking_url.includes('null');
+  const hasTrackingUrl = !isPickup && hasValidUrl(order?.shipday_tracking_url);
 
   // Gmail receipt deep link — cross-platform
   const handleViewGmailReceipt = useCallback(async () => {
@@ -97,19 +131,15 @@ export default function OrderTrackingScreen() {
           await Linking.openURL('googlegmail://');
           return;
         }
-        // Fallback to iOS Mail app
         const canOpenMail = await Linking.canOpenURL('message://');
         if (canOpenMail) {
           await Linking.openURL('message://');
           return;
         }
       }
-      // Android: open Gmail via https (opens in Gmail app if installed)
-      // Also works as web fallback on iOS
       await Linking.openURL('https://mail.google.com/mail/');
     } catch (err) {
       console.log('Could not open mail app:', err);
-      // Last resort fallback
       try {
         await Linking.openURL('mailto:');
       } catch (e) {
@@ -122,8 +152,8 @@ export default function OrderTrackingScreen() {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Order not found</Text></View>;
   }
 
-  // ===== DELIVERY: Show WebView directly when tracking URL is available =====
-  if (!isPickup && hasValidTrackingUrl && order.status !== 'delivered' && order.status !== 'cancelled') {
+  // ===== DELIVERY: Show WebView when tracking URL is available =====
+  if (!isPickup && hasTrackingUrl && order.status !== 'delivered' && order.status !== 'cancelled') {
     return (
       <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
         <View style={styles.header}>
@@ -179,13 +209,22 @@ export default function OrderTrackingScreen() {
         ) : null}
 
         {/* WebView - takes remaining space */}
-        <WebView
-          source={{ uri: order.shipday_tracking_url! }}
-          style={{ flex: 1 }}
-          startInLoadingState
-          javaScriptEnabled
-          domStorageEnabled
-        />
+        <View style={{ flex: 1, position: 'relative' }}>
+          {webViewLoading ? (
+            <View style={styles.webViewLoadingOverlay}>
+              <ActivityIndicator size="large" color={theme.primary} />
+              <Text style={styles.webViewLoadingText}>Loading live tracking...</Text>
+            </View>
+          ) : null}
+          <WebView
+            source={{ uri: order.shipday_tracking_url! }}
+            style={{ flex: 1 }}
+            onLoadStart={() => setWebViewLoading(true)}
+            onLoadEnd={() => setWebViewLoading(false)}
+            javaScriptEnabled
+            domStorageEnabled
+          />
+        </View>
 
         {/* Bottom actions */}
         <View style={[styles.webViewBottom, { paddingBottom: insets.bottom + 12 }]}>
@@ -198,7 +237,8 @@ export default function OrderTrackingScreen() {
     );
   }
 
-  // ===== PICKUP or NO TRACKING URL or DELIVERED/CANCELLED: Status view =====
+  // ===== DELIVERY without tracking URL yet: Show "waiting for tracking" + timeline =====
+  // ===== PICKUP or DELIVERED/CANCELLED: Status view =====
 
   const getPickupMessage = () => {
     if (!isPickup) return null;
@@ -211,6 +251,9 @@ export default function OrderTrackingScreen() {
       default: return null;
     }
   };
+
+  // Show a "tracking loading" indicator for delivery orders that don't have a tracking URL yet
+  const isWaitingForTracking = !isPickup && !hasTrackingUrl && order.status !== 'delivered' && order.status !== 'cancelled';
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
@@ -256,6 +299,21 @@ export default function OrderTrackingScreen() {
               : `Estimated delivery: ${order.shipday_eta || order.estimated_delivery}`}
           </Text>
         </View>
+
+        {/* Waiting for live tracking banner (delivery only, before tracking URL is available) */}
+        {isWaitingForTracking ? (
+          <View style={styles.trackingLoadingCard}>
+            <View style={styles.trackingLoadingIcon}>
+              <ActivityIndicator size="small" color={theme.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.trackingLoadingTitle}>Setting up live tracking...</Text>
+              <Text style={styles.trackingLoadingText}>
+                Live map tracking will appear automatically once your order is dispatched. This usually takes a moment.
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         {/* Pickup location card */}
         {isPickup && (order.status === 'on_the_way' || order.status === 'preparing') ? (
@@ -405,6 +463,13 @@ export default function OrderTrackingScreen() {
   );
 }
 
+function hasValidUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
+  if (url.includes('undefined') || url.includes('null')) return false;
+  return true;
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF', paddingHorizontal: 16 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 12 },
@@ -424,10 +489,18 @@ const styles = StyleSheet.create({
   carrierBarName: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
   carrierBarLabel: { fontSize: 11, color: theme.textMuted },
   carrierCallBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
+  // WebView loading
+  webViewLoadingOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 10, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center', gap: 12 },
+  webViewLoadingText: { fontSize: 14, color: theme.textMuted, fontWeight: '500' },
   // Bottom actions for WebView mode
   webViewBottom: { paddingTop: 8, paddingHorizontal: 4, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: theme.border },
   gmailReceiptBtnCompact: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderRadius: 10, backgroundColor: '#FEF2F2' },
   gmailReceiptTextCompact: { fontSize: 13, fontWeight: '600', color: '#DC2626' },
+  // Tracking loading card
+  trackingLoadingCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, padding: 16, borderRadius: 16, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted, marginBottom: 16 },
+  trackingLoadingIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
+  trackingLoadingTitle: { fontSize: 14, fontWeight: '700', color: theme.textPrimary, marginBottom: 4 },
+  trackingLoadingText: { fontSize: 13, color: theme.textSecondary, lineHeight: 19 },
   // Status view styles
   successBanner: { alignItems: 'center', paddingVertical: 24, backgroundColor: theme.primaryFaint, borderRadius: 20, marginBottom: 16 },
   successIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },

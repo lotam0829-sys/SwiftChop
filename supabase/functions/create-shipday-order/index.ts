@@ -84,7 +84,6 @@ Deno.serve(async (req: Request) => {
       .single();
 
     // Build Shipday order payload
-    // Prices are stored as integers in Naira (not kobo), so no division needed
     const shipdayPayload = {
       orderNumber: order.order_number,
       customerName: order.customer_name || 'SwiftChop Customer',
@@ -132,7 +131,7 @@ Deno.serve(async (req: Request) => {
     });
 
     const shipdayResult = await shipdayResponse.text();
-    console.log('Shipday response:', shipdayResponse.status, shipdayResult);
+    console.log('Shipday POST response:', shipdayResponse.status, shipdayResult);
 
     if (!shipdayResponse.ok) {
       return new Response(
@@ -150,11 +149,57 @@ Deno.serve(async (req: Request) => {
 
     const shipdayOrderId = shipdayData.orderId || shipdayData.id || null;
 
-    // Extract tracking URL from Shipday response if available
-    // Shipday may return a trackingLink or trackingUrl field
+    // Extract tracking URL from POST response (may or may not be present)
     let trackingUrl = shipdayData.trackingLink || shipdayData.trackingUrl || shipdayData.tracking_url || null;
 
-    // Only store valid HTTP URLs
+    // If no tracking link in POST response, fetch order details via GET to retrieve it
+    // Shipday generates the trackingLink when the order is created, but the POST response
+    // may not include it — we need to GET /orders/{orderNumber} to get it
+    if (!trackingUrl && order.order_number) {
+      try {
+        console.log(`Fetching order details from Shipday for order: ${order.order_number}`);
+        const getResponse = await fetch(`${SHIPDAY_API_URL}/${encodeURIComponent(order.order_number)}`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Basic ${SHIPDAY_API_KEY}`,
+            'Accept': 'application/json',
+          },
+        });
+
+        if (getResponse.ok) {
+          const getResult = await getResponse.text();
+          console.log('Shipday GET response:', getResult);
+
+          let orderDetails: any;
+          try {
+            orderDetails = JSON.parse(getResult);
+          } catch {
+            orderDetails = null;
+          }
+
+          // Shipday GET returns an array of order objects
+          if (Array.isArray(orderDetails) && orderDetails.length > 0) {
+            const detail = orderDetails[0];
+            trackingUrl = detail.trackingLink || detail.trackingUrl || null;
+            console.log('Tracking link from GET:', trackingUrl);
+
+            // Also capture distance from the order details
+            if (!shipdayData.distance && detail.distance) {
+              shipdayData.distance = detail.distance;
+            }
+          } else if (orderDetails && !Array.isArray(orderDetails)) {
+            trackingUrl = orderDetails.trackingLink || orderDetails.trackingUrl || null;
+            console.log('Tracking link from GET (single):', trackingUrl);
+          }
+        } else {
+          console.log('Shipday GET failed:', getResponse.status);
+        }
+      } catch (getErr) {
+        console.error('Failed to fetch Shipday order details:', getErr);
+      }
+    }
+
+    // Validate tracking URL
     if (trackingUrl && !trackingUrl.startsWith('http')) {
       trackingUrl = null;
     }
@@ -168,21 +213,20 @@ Deno.serve(async (req: Request) => {
       updated_at: new Date().toISOString(),
     };
 
-    // Only set tracking URL if we have a valid one
+    // Store tracking URL
     if (trackingUrl) {
       updatePayload.shipday_tracking_url = trackingUrl;
+      console.log('Storing tracking URL:', trackingUrl);
     }
 
     // If Shipday returned an actual distance, recalculate and update delivery fee
     if (shipdayDistance && shipdayDistance > 0) {
-      // Pricing formula: baseFee (500) + ceil(km) * perKmRate (150), clamped [500, 5000]
       const baseFee = 500;
       const perKmRate = 150;
       const minFee = 500;
       const maxFee = 5000;
       const recalcFee = Math.min(maxFee, Math.max(minFee, baseFee + Math.ceil(shipdayDistance) * perKmRate));
 
-      // Update delivery fee and total based on actual distance
       const feeDiff = recalcFee - (order.delivery_fee || 0);
       if (feeDiff !== 0) {
         updatePayload.delivery_fee = recalcFee;

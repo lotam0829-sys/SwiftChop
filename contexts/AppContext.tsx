@@ -369,21 +369,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       setCustomerOrders(prev => [orderWithItems, ...prev]);
 
-      dispatchToShipday(data.id).then(({ data: shipdayResult, error: shipdayError }) => {
-        if (shipdayError) {
-          console.log('Shipday dispatch note:', shipdayError);
-        } else if (shipdayResult) {
-          console.log('Shipday dispatch success:', shipdayResult);
-          if (shipdayResult.trackingUrl) {
-            setCustomerOrders(prev =>
-              prev.map(o => o.id === data.id
-                ? { ...o, shipday_tracking_url: shipdayResult.trackingUrl, shipday_order_id: shipdayResult.shipdayOrderId }
-                : o
-              )
-            );
+      // Dispatch to Shipday — for delivery orders only (not pickup)
+      const isPickupOrder = orderWithItems.delivery_address?.startsWith('PICKUP:');
+      if (!isPickupOrder) {
+        dispatchToShipday(data.id).then(({ data: shipdayResult, error: shipdayError }) => {
+          if (shipdayError) {
+            console.log('Shipday dispatch note:', shipdayError);
+          } else if (shipdayResult) {
+            console.log('Shipday dispatch success:', JSON.stringify(shipdayResult));
+            const updates: Partial<DbOrder> = {};
+            if (shipdayResult.trackingUrl) {
+              updates.shipday_tracking_url = shipdayResult.trackingUrl;
+            }
+            if (shipdayResult.shipdayOrderId) {
+              updates.shipday_order_id = shipdayResult.shipdayOrderId;
+            }
+            if (Object.keys(updates).length > 0) {
+              setCustomerOrders(prev =>
+                prev.map(o => o.id === data.id ? { ...o, ...updates } : o)
+              );
+            }
           }
-        }
-      });
+        });
+      }
 
       return orderWithItems;
     }
