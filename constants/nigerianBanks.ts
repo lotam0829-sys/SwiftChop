@@ -5,6 +5,7 @@ export interface NigerianBank {
 }
 
 export const nigerianBanks: NigerianBank[] = [
+  { name: 'Test Bank (Paystack)', code: '001' },
   { name: 'Access Bank', code: '044' },
   { name: 'Citibank Nigeria', code: '023' },
   { name: 'Diamond Bank', code: '063' },
