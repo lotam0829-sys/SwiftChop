@@ -180,6 +180,35 @@ Deno.serve(async (req: Request) => {
 
     console.log('Order updated successfully:', updatedOrder);
 
+    // === TRIGGER PAYOUT ON DELIVERY ===
+    if (newStatus === 'delivered' && updatedOrder?.id) {
+      try {
+        const distance = order?.distance || 0;
+        console.log(`Order delivered — triggering payout for order ${updatedOrder.id}, distance: ${distance}km`);
+
+        const payoutResponse = await fetch(
+          `${Deno.env.get('SUPABASE_URL')}/functions/v1/process-payout`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            },
+            body: JSON.stringify({
+              order_id: updatedOrder.id,
+              distance_km: distance,
+            }),
+          }
+        );
+
+        const payoutResult = await payoutResponse.json();
+        console.log('Payout result:', JSON.stringify(payoutResult));
+      } catch (payoutErr) {
+        // Payout failure should not fail the webhook
+        console.error('Payout trigger error:', payoutErr);
+      }
+    }
+
     // === PUSH NOTIFICATION ===
     if (updatedOrder?.customer_id) {
       try {

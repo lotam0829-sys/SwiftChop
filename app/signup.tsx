@@ -37,13 +37,19 @@ export default function SignupScreen() {
   const roleColor = userRole === 'rider' ? '#059669' : userRole === 'restaurant' ? '#7C3AED' : theme.primary;
   const roleBg = userRole === 'rider' ? '#ECFDF5' : userRole === 'restaurant' ? '#EDE9FE' : theme.primaryFaint;
 
-  // Detect Google Sign-In completion → route to onboarding
+  // Detect Google Sign-In completion → set role and route to onboarding
   useEffect(() => {
     if (!googleAuthPending || !user?.id || user.id === prevUserId.current) return;
 
     const handlePostGoogleAuth = async () => {
       try {
         setSettingUpProfile(true);
+        // Set the correct role immediately so the trigger default is overridden
+        await updateUserProfile(user.id, {
+          role: userRole === 'rider' ? 'rider' : userRole,
+          is_approved: userRole === 'customer',
+        } as any);
+        await refreshProfile();
         router.replace({ pathname: '/onboarding', params: { role: userRole } });
       } catch (err) {
         console.error('Post-Google signup error:', err);
@@ -89,9 +95,11 @@ export default function SignupScreen() {
 
     setSettingUpProfile(true);
     try {
+      // Set role explicitly — the handle_new_user trigger defaults to 'customer'
+      const targetRole = userRole === 'rider' ? 'rider' : userRole === 'restaurant' ? 'restaurant' : 'customer';
       await updateUserProfile(newUser.id, {
-        role: userRole === 'rider' ? 'rider' : userRole,
-        is_approved: userRole === 'customer',
+        role: targetRole,
+        is_approved: targetRole === 'customer',
         phone: phone.trim(),
       } as any);
       await refreshProfile();

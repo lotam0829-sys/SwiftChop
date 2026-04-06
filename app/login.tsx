@@ -10,6 +10,7 @@ import { getImage } from '../constants/images';
 import { useAuth, useAlert } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
 import { useApp } from '../contexts/AppContext';
+import { updateUserProfile } from '../services/supabaseData';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -43,7 +44,13 @@ export default function LoginScreen() {
         const isNewUser = createdAt && (now.getTime() - createdAt.getTime()) < 120000;
 
         if (isNewUser) {
-          // New user → route to onboarding with chosen role
+          // New user → set correct role and route to onboarding
+          const targetRole = userRole === 'rider' ? 'rider' : userRole === 'restaurant' ? 'restaurant' : 'customer';
+          await updateUserProfile(user.id, {
+            role: targetRole,
+            is_approved: targetRole === 'customer',
+          } as any);
+          await refreshProfile();
           router.replace({ pathname: '/onboarding', params: { role: userRole } });
         } else {
           // Existing user → refresh and let layout routing handle

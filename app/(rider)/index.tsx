@@ -165,10 +165,7 @@ export default function RiderEarningsScreen() {
         {/* Start Earning CTA */}
         <Pressable
           onPress={() => {
-            // Open Shipday Drive app or store listing
-            const iosUrl = 'https://apps.apple.com/app/shipday-drive/id1589416498';
-            const androidUrl = 'https://play.google.com/store/apps/details?id=com.shipday.driver';
-            const url = Platform.OS === 'ios' ? iosUrl : androidUrl;
+            const url = 'https://apps.apple.com/ca/app/shipday-drive/id1531504620';
             Linking.openURL(url);
           }}
           style={styles.startEarningBtn}
