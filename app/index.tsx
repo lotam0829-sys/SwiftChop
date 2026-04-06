@@ -24,5 +24,9 @@ export default function RootScreen() {
     return <Redirect href={userProfile.is_approved ? '/(restaurant)' : '/pending-approval'} />;
   }
 
+  if (userProfile?.role === 'rider') {
+    return <Redirect href={userProfile.is_approved ? '/(tabs)' : '/pending-approval'} />;
+  }
+
   return <Redirect href="/(tabs)" />;
 }

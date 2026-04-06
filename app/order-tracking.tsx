@@ -1,19 +1,28 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, Linking, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Linking, ScrollView, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
+import { WebView } from 'react-native-webview';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
 import { useApp } from '../contexts/AppContext';
 
-const steps = [
+const deliverySteps = [
   { key: 'pending', icon: 'hourglass-top', label: 'Order Placed', sub: 'Waiting for restaurant to accept' },
   { key: 'confirmed', icon: 'check-circle', label: 'Confirmed', sub: 'Restaurant accepted your order' },
   { key: 'preparing', icon: 'restaurant', label: 'Preparing', sub: 'Chef is making your food' },
   { key: 'on_the_way', icon: 'delivery-dining', label: 'On the Way', sub: 'Rider is heading to you' },
   { key: 'delivered', icon: 'done-all', label: 'Delivered', sub: 'Enjoy your meal!' },
+];
+
+const pickupSteps = [
+  { key: 'pending', icon: 'hourglass-top', label: 'Order Placed', sub: 'Waiting for restaurant to accept' },
+  { key: 'confirmed', icon: 'check-circle', label: 'Confirmed', sub: 'Restaurant accepted your order' },
+  { key: 'preparing', icon: 'restaurant', label: 'Preparing', sub: 'Restaurant is preparing your order' },
+  { key: 'on_the_way', icon: 'storefront', label: 'Ready for Pickup', sub: 'Head to the restaurant to collect your order' },
+  { key: 'delivered', icon: 'done-all', label: 'Collected', sub: 'Order Complete — Enjoy your meal!' },
 ];
 
 export default function OrderTrackingScreen() {
@@ -23,7 +32,11 @@ export default function OrderTrackingScreen() {
   const { customerOrders, refreshOrder, reorder } = useApp();
 
   const order = customerOrders.find(o => o.id === orderId) || customerOrders[0];
+  const isPickup = order?.delivery_address?.startsWith('PICKUP:');
+  const steps = isPickup ? pickupSteps : deliverySteps;
+
   const [currentStep, setCurrentStep] = useState(0);
+  const [showTrackingWebView, setShowTrackingWebView] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const statusIndex = steps.findIndex(s => s.key === order?.status);
@@ -56,6 +69,13 @@ export default function OrderTrackingScreen() {
     };
   }, [order?.status, orderId]);
 
+  // Auto-dismiss tracking WebView when delivered
+  useEffect(() => {
+    if (order?.status === 'delivered' && showTrackingWebView) {
+      setShowTrackingWebView(false);
+    }
+  }, [order?.status, showTrackingWebView]);
+
   const pulseScale = useSharedValue(1);
   useEffect(() => {
     pulseScale.value = withRepeat(
@@ -70,29 +90,73 @@ export default function OrderTrackingScreen() {
 
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulseScale.value }] }));
 
-  const handleOpenTracking = useCallback(async () => {
-    const url = order?.shipday_tracking_url;
-    if (!url) return;
+  const hasValidTrackingUrl = !isPickup && order?.shipday_tracking_url
+    && (order.shipday_tracking_url.startsWith('http://') || order.shipday_tracking_url.startsWith('https://'))
+    && !order.shipday_tracking_url.includes('undefined')
+    && !order.shipday_tracking_url.includes('null');
+
+  // Gmail receipt deep link
+  const handleViewGmailReceipt = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const gmailUrl = 'googlegmail://';
+    const mailtoUrl = 'mailto:';
     try {
-      const isValid = url.startsWith('http://') || url.startsWith('https://');
-      if (!isValid) return;
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
+      const canOpenGmail = await Linking.canOpenURL(gmailUrl);
+      if (canOpenGmail) {
+        await Linking.openURL(gmailUrl);
+        return;
+      }
+      // Fallback to default mail app
+      const canOpenMail = await Linking.canOpenURL(mailtoUrl);
+      if (canOpenMail) {
+        await Linking.openURL(mailtoUrl);
       }
     } catch (err) {
-      console.error('Failed to open tracking URL:', err);
+      console.log('Could not open mail app:', err);
     }
-  }, [order?.shipday_tracking_url]);
+  }, []);
 
   if (!order) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Order not found</Text></View>;
   }
 
-  const hasValidTrackingUrl = order.shipday_tracking_url
-    && (order.shipday_tracking_url.startsWith('http://') || order.shipday_tracking_url.startsWith('https://'))
-    && !order.shipday_tracking_url.includes('undefined')
-    && !order.shipday_tracking_url.includes('null');
+  // Shipday Tracking WebView (embedded)
+  if (showTrackingWebView && hasValidTrackingUrl) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => setShowTrackingWebView(false)} style={styles.backBtn}>
+            <MaterialIcons name="close" size={22} color={theme.textPrimary} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Live Tracking</Text>
+          <View style={styles.liveBadge}>
+            <View style={styles.liveIndicator} />
+            <Text style={styles.liveText}>LIVE</Text>
+          </View>
+        </View>
+        <WebView
+          source={{ uri: order.shipday_tracking_url! }}
+          style={{ flex: 1 }}
+          startInLoadingState
+          javaScriptEnabled
+          domStorageEnabled
+        />
+      </View>
+    );
+  }
+
+  // Pickup status-specific messaging
+  const getPickupMessage = () => {
+    if (!isPickup) return null;
+    switch (order.status) {
+      case 'pending': return 'Waiting for the restaurant to confirm your order';
+      case 'confirmed': return 'Restaurant has accepted your order and will begin preparing it shortly';
+      case 'preparing': return 'Restaurant is preparing your order';
+      case 'on_the_way': return `Your order is ready! Head to ${order.restaurant_name} to collect it`;
+      case 'delivered': return 'Order Complete — Enjoy your meal!';
+      default: return null;
+    }
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
@@ -100,7 +164,7 @@ export default function OrderTrackingScreen() {
         <Pressable onPress={() => router.replace('/(tabs)/orders')} style={styles.backBtn}>
           <MaterialIcons name="close" size={22} color={theme.textPrimary} />
         </Pressable>
-        <Text style={styles.headerTitle}>Order Tracking</Text>
+        <Text style={styles.headerTitle}>{isPickup ? 'Pickup Tracking' : 'Order Tracking'}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -110,46 +174,85 @@ export default function OrderTrackingScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.successBanner}>
-          <View style={[styles.successIcon, { backgroundColor: order.status === 'pending' ? theme.warning : theme.success }]}>
-            <MaterialIcons name={order.status === 'pending' ? 'hourglass-top' : 'check'} size={28} color="#FFF" />
+          <View style={[styles.successIcon, {
+            backgroundColor: order.status === 'delivered' ? theme.success
+              : order.status === 'on_the_way' && isPickup ? '#2563EB'
+              : order.status === 'pending' ? theme.warning : theme.primary
+          }]}>
+            <MaterialIcons
+              name={
+                order.status === 'delivered' ? 'check' :
+                order.status === 'on_the_way' && isPickup ? 'storefront' :
+                order.status === 'pending' ? 'hourglass-top' : 'restaurant'
+              }
+              size={28}
+              color="#FFF"
+            />
           </View>
           <Text style={styles.successTitle}>
-            {order.status === 'pending' ? 'Order Placed!' : order.status === 'delivered' ? 'Order Delivered!' : 'Order in Progress'}
+            {order.status === 'pending' ? 'Order Placed!' :
+             order.status === 'delivered' ? (isPickup ? 'Order Collected!' : 'Order Delivered!') :
+             isPickup && order.status === 'on_the_way' ? 'Ready for Pickup!' :
+             'Order in Progress'}
           </Text>
           <Text style={styles.successSub}>
-            {order.status === 'pending'
+            {isPickup ? (getPickupMessage() || '') :
+             order.status === 'pending'
               ? 'Waiting for the restaurant to confirm'
               : `Estimated delivery: ${order.shipday_eta || order.estimated_delivery}`}
           </Text>
         </View>
 
-        {/* Tracking notification */}
-        <View style={styles.trackingNotice}>
-          <MaterialIcons name="notifications-active" size={20} color="#2563EB" />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.trackingNoticeTitle}>Live Tracking Available</Text>
-            <Text style={styles.trackingNoticeText}>
-              A tracking link will be sent to your phone number and email once a rider is assigned. You can also track your order live using the button below.
-            </Text>
+        {/* Pickup location card */}
+        {isPickup && (order.status === 'on_the_way' || order.status === 'preparing') ? (
+          <View style={styles.pickupLocationCard}>
+            <View style={styles.pickupLocationIcon}>
+              <MaterialIcons name="storefront" size={24} color="#2563EB" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pickupLocationName}>{order.restaurant_name}</Text>
+              <Text style={styles.pickupLocationAddr}>
+                {order.delivery_address?.replace('PICKUP: ', '') || 'Restaurant location'}
+              </Text>
+            </View>
+            {order.status === 'on_the_way' ? (
+              <View style={styles.readyBadge}>
+                <Text style={styles.readyBadgeText}>READY</Text>
+              </View>
+            ) : null}
           </View>
-        </View>
+        ) : null}
 
-        {/* Shipday Live Tracking Link */}
-        {hasValidTrackingUrl ? (
-          <Pressable onPress={handleOpenTracking} style={styles.trackingLinkBtn}>
-            <MaterialIcons name="map" size={20} color="#FFF" />
-            <Text style={styles.trackingLinkText}>Track Live on Map</Text>
-            <MaterialIcons name="open-in-new" size={16} color="rgba(255,255,255,0.7)" />
-          </Pressable>
-        ) : (
-          <View style={styles.trackingPending}>
-            <MaterialIcons name="hourglass-top" size={18} color={theme.textMuted} />
-            <Text style={styles.trackingPendingText}>Live tracking link will appear here once a rider is assigned to your order.</Text>
-          </View>
-        )}
+        {/* Delivery tracking - embedded WebView button */}
+        {!isPickup ? (
+          <>
+            <View style={styles.trackingNotice}>
+              <MaterialIcons name="notifications-active" size={20} color="#2563EB" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.trackingNoticeTitle}>Live Tracking Available</Text>
+                <Text style={styles.trackingNoticeText}>
+                  A tracking link will be sent to your phone number and email once a rider is assigned. You can also track your order live below.
+                </Text>
+              </View>
+            </View>
 
-        {/* Carrier info */}
-        {order.shipday_carrier_name ? (
+            {hasValidTrackingUrl ? (
+              <Pressable onPress={() => setShowTrackingWebView(true)} style={styles.trackingLinkBtn}>
+                <MaterialIcons name="map" size={20} color="#FFF" />
+                <Text style={styles.trackingLinkText}>Track Live on Map</Text>
+                <MaterialIcons name="fullscreen" size={18} color="rgba(255,255,255,0.7)" />
+              </Pressable>
+            ) : (
+              <View style={styles.trackingPending}>
+                <MaterialIcons name="hourglass-top" size={18} color={theme.textMuted} />
+                <Text style={styles.trackingPendingText}>Live tracking link will appear here once a rider is assigned to your order.</Text>
+              </View>
+            )}
+          </>
+        ) : null}
+
+        {/* Carrier info (delivery only) */}
+        {!isPickup && order.shipday_carrier_name ? (
           <View style={styles.carrierCard}>
             <View style={styles.carrierAvatar}>
               <MaterialIcons name="person" size={24} color={theme.primary} />
@@ -199,10 +302,15 @@ export default function OrderTrackingScreen() {
         <View style={styles.orderInfo}>
           <Text style={styles.infoTitle}>Order Details</Text>
           <View style={styles.infoRow}><MaterialIcons name="storefront" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.restaurant_name}</Text></View>
-          <View style={styles.infoRow}><MaterialIcons name="location-on" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.delivery_address}</Text></View>
+          <View style={styles.infoRow}>
+            <MaterialIcons name={isPickup ? 'storefront' : 'location-on'} size={18} color={theme.textMuted} />
+            <Text style={styles.infoText}>
+              {isPickup ? order.delivery_address?.replace('PICKUP: ', 'Pickup: ') : order.delivery_address}
+            </Text>
+          </View>
           <View style={styles.infoRow}><MaterialIcons name="receipt" size={18} color={theme.textMuted} /><Text style={styles.infoText}>{order.order_number}</Text></View>
-          <View style={styles.infoRow}><MaterialIcons name="credit-card" size={18} color={theme.textMuted} /><Text style={styles.infoText}>Card Payment</Text></View>
-          {order.delivery_address?.startsWith('PICKUP:') ? (
+          <View style={styles.infoRow}><MaterialIcons name="credit-card" size={18} color={theme.textMuted} /><Text style={styles.infoText}>Card Payment (Paystack)</Text></View>
+          {isPickup ? (
             <View style={styles.pickupBadgeRow}>
               <MaterialIcons name="storefront" size={16} color="#2563EB" />
               <Text style={styles.pickupBadgeText}>Pickup Order</Text>
@@ -218,6 +326,15 @@ export default function OrderTrackingScreen() {
             <Text style={styles.totalValue}>{"\u20A6"}{order.total.toLocaleString()}</Text>
           </View>
         </View>
+
+        {/* Gmail Receipt Nudge */}
+        {order.status !== 'cancelled' ? (
+          <Pressable onPress={handleViewGmailReceipt} style={styles.gmailReceiptBtn}>
+            <MaterialIcons name="email" size={20} color="#EA4335" />
+            <Text style={styles.gmailReceiptText}>View Receipt in Gmail</Text>
+            <MaterialIcons name="open-in-new" size={16} color={theme.textMuted} />
+          </Pressable>
+        ) : null}
 
         {/* Reorder + Review for delivered orders */}
         {order.status === 'delivered' ? (
@@ -267,10 +384,19 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 12 },
   backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: theme.textPrimary },
+  liveBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#FEE2E2' },
+  liveIndicator: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' },
+  liveText: { fontSize: 11, fontWeight: '800', color: '#EF4444' },
   successBanner: { alignItems: 'center', paddingVertical: 24, backgroundColor: theme.primaryFaint, borderRadius: 20, marginBottom: 16 },
   successIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   successTitle: { fontSize: 22, fontWeight: '700', color: theme.textPrimary },
   successSub: { fontSize: 14, color: theme.textSecondary, marginTop: 4, textAlign: 'center', paddingHorizontal: 24 },
+  pickupLocationCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 16, backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 16 },
+  pickupLocationIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' },
+  pickupLocationName: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
+  pickupLocationAddr: { fontSize: 13, color: theme.textSecondary, marginTop: 2 },
+  readyBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: '#10B981' },
+  readyBadgeText: { fontSize: 11, fontWeight: '800', color: '#FFF' },
   trackingNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 16, borderRadius: 14, backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 12 },
   trackingNoticeTitle: { fontSize: 14, fontWeight: '700', color: '#1E40AF', marginBottom: 4 },
   trackingNoticeText: { fontSize: 13, color: '#6B7280', lineHeight: 19 },
@@ -291,7 +417,7 @@ const styles = StyleSheet.create({
   timelineContent: { flex: 1, paddingBottom: 20 },
   timelineLabel: { fontSize: 15, fontWeight: '500', color: theme.textMuted },
   timelineSub: { fontSize: 13, color: theme.textMuted, marginTop: 2 },
-  orderInfo: { backgroundColor: theme.backgroundSecondary, borderRadius: 16, padding: 18, marginBottom: 20 },
+  orderInfo: { backgroundColor: theme.backgroundSecondary, borderRadius: 16, padding: 18, marginBottom: 16 },
   infoTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary, marginBottom: 14 },
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   infoText: { fontSize: 14, color: theme.textSecondary, flex: 1 },
@@ -302,6 +428,8 @@ const styles = StyleSheet.create({
   totalValue: { fontSize: 18, fontWeight: '700', color: theme.primary },
   pickupBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#EFF6FF' },
   pickupBadgeText: { fontSize: 13, fontWeight: '600', color: '#2563EB' },
+  gmailReceiptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 14, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', marginBottom: 16 },
+  gmailReceiptText: { fontSize: 15, fontWeight: '600', color: '#DC2626' },
   reorderPromptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 16, backgroundColor: theme.primary },
   reorderPromptText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   reviewPromptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 16, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted, marginBottom: 12 },

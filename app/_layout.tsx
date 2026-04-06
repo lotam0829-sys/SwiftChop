@@ -41,6 +41,8 @@ function RootNavigator() {
 
       if (userProfile.role === 'restaurant') {
         router.replace(userProfile.is_approved ? '/(restaurant)' : '/pending-approval');
+      } else if (userProfile.role === 'rider') {
+        router.replace(userProfile.is_approved ? '/(tabs)' : '/pending-approval');
       } else {
         router.replace('/(tabs)');
       }

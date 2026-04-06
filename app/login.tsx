@@ -18,7 +18,11 @@ export default function LoginScreen() {
   const { user, signInWithPassword, signInWithGoogle, operationLoading } = useAuth();
   const { showAlert } = useAlert();
   const { refreshProfile } = useApp();
-  const userRole = (role as 'customer' | 'restaurant') || 'customer';
+  const userRole = (role as 'customer' | 'restaurant' | 'rider') || 'customer';
+  const roleLabel = userRole === 'rider' ? 'Dispatch Rider' : userRole === 'restaurant' ? 'Restaurant' : 'Customer';
+  const roleIcon = userRole === 'rider' ? 'delivery-dining' : userRole === 'restaurant' ? 'storefront' : 'person';
+  const roleColor = userRole === 'rider' ? '#059669' : userRole === 'restaurant' ? '#7C3AED' : theme.primary;
+  const roleBg = userRole === 'rider' ? '#ECFDF5' : userRole === 'restaurant' ? '#EDE9FE' : theme.primaryFaint;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -98,15 +102,9 @@ export default function LoginScreen() {
           </Pressable>
 
           <View style={styles.header}>
-            <View style={[styles.roleBadge, { backgroundColor: userRole === 'customer' ? theme.primaryFaint : '#EDE9FE' }]}>
-              <MaterialIcons
-                name={userRole === 'customer' ? 'person' : 'storefront'}
-                size={16}
-                color={userRole === 'customer' ? theme.primary : '#7C3AED'}
-              />
-              <Text style={[styles.roleText, { color: userRole === 'customer' ? theme.primary : '#7C3AED' }]}>
-                {userRole === 'customer' ? 'Customer' : 'Restaurant'}
-              </Text>
+            <View style={[styles.roleBadge, { backgroundColor: roleBg }]}>
+              <MaterialIcons name={roleIcon as any} size={16} color={roleColor} />
+              <Text style={[styles.roleText, { color: roleColor }]}>{roleLabel}</Text>
             </View>
             <Image
               source={getImage('logo')}

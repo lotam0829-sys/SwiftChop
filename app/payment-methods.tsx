@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '../constants/theme';
 
 export default function PaymentMethodsScreen() {
@@ -15,13 +16,54 @@ export default function PaymentMethodsScreen() {
     >
       <Text style={styles.pageTitle}>Payment Methods</Text>
 
-      <View style={styles.infoCard}>
-        <View style={[styles.infoIconWrap, { backgroundColor: '#E8F5E9' }]}>
-          <MaterialIcons name="credit-card" size={24} color="#2E7D32" />
+      {/* Virtual Card Display */}
+      <View style={styles.cardSection}>
+        <LinearGradient
+          colors={['#1A1A2E', '#16213E', '#0F3460']}
+          style={styles.virtualCard}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.cardTopRow}>
+            <View style={styles.cardChip}>
+              <MaterialIcons name="contactless" size={22} color="rgba(255,255,255,0.7)" />
+            </View>
+            <Text style={styles.cardBrand}>Paystack</Text>
+          </View>
+          <Text style={styles.cardNumber}>{"\u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022"}</Text>
+          <View style={styles.cardBottomRow}>
+            <View>
+              <Text style={styles.cardSmallLabel}>CARDHOLDER</Text>
+              <Text style={styles.cardHolderName}>YOUR NAME</Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.cardSmallLabel}>EXPIRES</Text>
+              <Text style={styles.cardHolderName}>MM/YY</Text>
+            </View>
+          </View>
+          <View style={styles.cardTypeRow}>
+            {['Visa', 'Mastercard', 'Verve'].map(type => (
+              <View key={type} style={styles.cardTypePill}>
+                <Text style={styles.cardTypePillText}>{type}</Text>
+              </View>
+            ))}
+          </View>
+        </LinearGradient>
+        <Text style={styles.cardCaption}>
+          Your card details are entered securely at checkout via Paystack. No card information is stored until you complete your first payment.
+        </Text>
+      </View>
+
+      {/* Security info */}
+      <View style={styles.securityCard}>
+        <View style={[styles.securityIcon, { backgroundColor: '#E8F5E9' }]}>
+          <MaterialIcons name="shield" size={24} color="#2E7D32" />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.infoTitle}>Paystack Payments</Text>
-          <Text style={styles.infoText}>SwiftChop uses Paystack for secure card payments. You will enter your card details at checkout each time you order. Your card information is never stored on our servers.</Text>
+          <Text style={styles.securityTitle}>Secure Payments</Text>
+          <Text style={styles.securityText}>
+            Your card is stored securely and encrypted by Paystack — we never see your full card details.
+          </Text>
         </View>
       </View>
 
@@ -59,7 +101,7 @@ export default function PaymentMethodsScreen() {
 
       <View style={styles.securityNote}>
         <MaterialIcons name="lock" size={16} color={theme.success} />
-        <Text style={styles.securityText}>All payment information is encrypted end-to-end by Paystack, a PCI-DSS certified payment processor trusted by over 60,000 businesses in Nigeria.</Text>
+        <Text style={styles.securityNoteText}>All payment information is encrypted end-to-end by Paystack, a PCI-DSS certified payment processor trusted by over 60,000 businesses in Nigeria.</Text>
       </View>
     </ScrollView>
   );
@@ -68,10 +110,26 @@ export default function PaymentMethodsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF' },
   pageTitle: { fontSize: 24, fontWeight: '700', color: theme.textPrimary, marginBottom: 20 },
-  infoCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, padding: 18, borderRadius: 16, backgroundColor: '#F0FDF4', borderWidth: 1, borderColor: '#A7F3D0', marginBottom: 24 },
-  infoIconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  infoTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary, marginBottom: 4 },
-  infoText: { fontSize: 14, color: theme.textSecondary, lineHeight: 20 },
+  // Virtual Card
+  cardSection: { marginBottom: 24 },
+  virtualCard: { borderRadius: 18, padding: 24, minHeight: 200, justifyContent: 'space-between' },
+  cardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  cardChip: { width: 40, height: 30, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  cardBrand: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.6)', letterSpacing: 1 },
+  cardNumber: { fontSize: 20, fontWeight: '600', color: '#FFF', letterSpacing: 2, marginBottom: 16 },
+  cardBottomRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  cardSmallLabel: { fontSize: 9, color: 'rgba(255,255,255,0.45)', letterSpacing: 1, marginBottom: 4 },
+  cardHolderName: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.85)' },
+  cardTypeRow: { flexDirection: 'row', gap: 6 },
+  cardTypePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.12)' },
+  cardTypePillText: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)' },
+  cardCaption: { fontSize: 13, color: theme.textMuted, lineHeight: 18, marginTop: 12, paddingHorizontal: 4 },
+  // Security
+  securityCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, padding: 18, borderRadius: 16, backgroundColor: '#F0FDF4', borderWidth: 1, borderColor: '#A7F3D0', marginBottom: 24 },
+  securityIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  securityTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary, marginBottom: 4 },
+  securityText: { fontSize: 14, color: theme.textSecondary, lineHeight: 20 },
+  // How it works
   howItWorksCard: { backgroundColor: theme.backgroundSecondary, borderRadius: 16, padding: 20, marginBottom: 24, borderWidth: 1, borderColor: theme.border },
   howTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary, marginBottom: 16 },
   howStep: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
@@ -79,11 +137,12 @@ const styles = StyleSheet.create({
   howStepNumText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
   howStepIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
   howStepText: { flex: 1, fontSize: 14, color: theme.textPrimary, lineHeight: 19 },
+  // Accepted cards
   acceptedCards: { marginBottom: 24 },
   acceptedTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary, marginBottom: 12 },
   cardTypes: { flexDirection: 'row', gap: 10 },
   cardTypeBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.backgroundSecondary, borderWidth: 1, borderColor: theme.border },
   cardTypeText: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
   securityNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 4 },
-  securityText: { flex: 1, fontSize: 12, color: theme.textMuted, lineHeight: 17 },
+  securityNoteText: { flex: 1, fontSize: 12, color: theme.textMuted, lineHeight: 17 },
 });

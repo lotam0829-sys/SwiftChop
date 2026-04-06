@@ -19,17 +19,23 @@ export default function SignupScreen() {
   const { user, sendOTP, verifyOTPAndLogin, signInWithGoogle, operationLoading } = useAuth();
   const { showAlert } = useAlert();
   const { refreshProfile } = useApp();
-  const userRole = (role as 'customer' | 'restaurant') || 'customer';
+  const userRole = (role as 'customer' | 'restaurant' | 'rider') || 'customer';
 
   const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [phone, setPhone] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState('');
   const [settingUpProfile, setSettingUpProfile] = useState(false);
   const [googleAuthPending, setGoogleAuthPending] = useState(false);
   const prevUserId = useRef<string | null>(null);
+
+  const roleLabel = userRole === 'rider' ? 'Dispatch Rider' : userRole === 'restaurant' ? 'Restaurant Partner' : 'Customer';
+  const roleIcon = userRole === 'rider' ? 'delivery-dining' : userRole === 'restaurant' ? 'storefront' : 'person';
+  const roleColor = userRole === 'rider' ? '#059669' : userRole === 'restaurant' ? '#7C3AED' : theme.primary;
+  const roleBg = userRole === 'rider' ? '#ECFDF5' : userRole === 'restaurant' ? '#EDE9FE' : theme.primaryFaint;
 
   // Detect Google Sign-In completion → route to onboarding
   useEffect(() => {
@@ -38,7 +44,6 @@ export default function SignupScreen() {
     const handlePostGoogleAuth = async () => {
       try {
         setSettingUpProfile(true);
-        // Always route to onboarding for Google signup
         router.replace({ pathname: '/onboarding', params: { role: userRole } });
       } catch (err) {
         console.error('Post-Google signup error:', err);
@@ -60,6 +65,7 @@ export default function SignupScreen() {
     if (!email.trim() || !email.includes('@')) { showAlert('Error', 'Please enter a valid email'); return false; }
     if (password.length < 6) { showAlert('Error', 'Password must be at least 6 characters'); return false; }
     if (password !== confirmPassword) { showAlert('Error', 'Passwords do not match'); return false; }
+    if (!phone.trim()) { showAlert('Error', 'Please enter your phone number'); return false; }
     return true;
   };
 
@@ -81,16 +87,15 @@ export default function SignupScreen() {
     if (error) { showAlert('Verification Failed', error); return; }
     if (!newUser?.id) { showAlert('Error', 'Account creation failed.'); return; }
 
-    // Set role IMMEDIATELY, then route to onboarding for full setup
     setSettingUpProfile(true);
     try {
       await updateUserProfile(newUser.id, {
-        role: userRole,
+        role: userRole === 'rider' ? 'rider' : userRole,
         is_approved: userRole === 'customer',
+        phone: phone.trim(),
       } as any);
       await refreshProfile();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      // Route to onboarding for both roles
       router.replace({ pathname: '/onboarding', params: { role: userRole } });
     } catch (err) {
       console.error('Profile setup error:', err);
@@ -124,15 +129,9 @@ export default function SignupScreen() {
           </Pressable>
 
           <View style={styles.header}>
-            <View style={[styles.roleBadge, { backgroundColor: userRole === 'customer' ? theme.primaryFaint : '#EDE9FE' }]}>
-              <MaterialIcons
-                name={userRole === 'customer' ? 'person' : 'storefront'}
-                size={16}
-                color={userRole === 'customer' ? theme.primary : '#7C3AED'}
-              />
-              <Text style={[styles.roleText, { color: userRole === 'customer' ? theme.primary : '#7C3AED' }]}>
-                {userRole === 'customer' ? 'Customer' : 'Restaurant Partner'}
-              </Text>
+            <View style={[styles.roleBadge, { backgroundColor: roleBg }]}>
+              <MaterialIcons name={roleIcon as any} size={16} color={roleColor} />
+              <Text style={[styles.roleText, { color: roleColor }]}>{roleLabel}</Text>
             </View>
             <Image
               source={getImage('logo')}
@@ -143,28 +142,41 @@ export default function SignupScreen() {
             <Text style={styles.subtitle}>
               {step === 'otp'
                 ? `Enter the 4-digit code sent to ${email}`
+                : userRole === 'rider' ? 'Join SwiftChop as a dispatch rider and start earning'
                 : userRole === 'customer' ? 'Start ordering delicious meals' : 'Partner with SwiftChop to grow your business'}
             </Text>
           </View>
 
           {step === 'credentials' ? (
             <>
-              <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={isProcessing}>
-                <Ionicons name="logo-google" size={20} color="#DB4437" />
-                <Text style={styles.googleBtnText}>Continue with Google</Text>
-              </Pressable>
+              {userRole !== 'rider' ? (
+                <Pressable onPress={handleGoogleSignIn} style={styles.googleBtn} disabled={isProcessing}>
+                  <Ionicons name="logo-google" size={20} color="#DB4437" />
+                  <Text style={styles.googleBtnText}>Continue with Google</Text>
+                </Pressable>
+              ) : null}
 
-              <View style={styles.divider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or sign up with email</Text>
-                <View style={styles.dividerLine} />
-              </View>
+              {userRole !== 'rider' ? (
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or sign up with email</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+              ) : null}
 
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Email address</Text>
                 <View style={styles.inputWrap}>
                   <MaterialIcons name="email" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
                   <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={theme.textMuted} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Phone Number</Text>
+                <View style={styles.inputWrap}>
+                  <MaterialIcons name="phone" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+                  <TextInput style={styles.input} placeholder="+234 801 234 5678" placeholderTextColor={theme.textMuted} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
                 </View>
               </View>
 

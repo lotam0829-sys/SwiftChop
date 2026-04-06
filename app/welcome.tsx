@@ -14,7 +14,7 @@ export default function WelcomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const handleRole = (role: 'customer' | 'restaurant') => {
+  const handleRole = (role: 'customer' | 'restaurant' | 'rider') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push({ pathname: '/login', params: { role } });
   };
@@ -65,6 +65,13 @@ export default function WelcomeScreen() {
             icon={<MaterialIcons name="storefront" size={20} color={theme.primary} />}
             style={{ borderColor: 'rgba(255,107,0,0.6)' }}
           />
+          <Pressable
+            onPress={() => handleRole('rider')}
+            style={styles.riderBtn}
+          >
+            <MaterialIcons name="delivery-dining" size={20} color="#10B981" />
+            <Text style={styles.riderBtnText}>{"I'm a Dispatch Rider — Start Earning"}</Text>
+          </Pressable>
         </View>
 
         <Pressable onPress={() => router.push({ pathname: '/login', params: { role: 'customer' } })}>
@@ -86,4 +93,16 @@ const styles = StyleSheet.create({
   tagline: { fontSize: 16, color: 'rgba(255,255,255,0.75)', lineHeight: 24, marginBottom: 36 },
   buttons: { gap: 14, marginBottom: 20 },
   loginLink: { fontSize: 14, color: 'rgba(255,255,255,0.6)', textAlign: 'center', paddingVertical: 8 },
+  riderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    height: 52,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(16,185,129,0.5)',
+    backgroundColor: 'rgba(16,185,129,0.08)',
+  },
+  riderBtnText: { fontSize: 15, fontWeight: '600', color: '#10B981' },
 });
