@@ -25,7 +25,7 @@ export default function RootScreen() {
   }
 
   if (userProfile?.role === 'rider') {
-    return <Redirect href={userProfile.is_approved ? '/(tabs)' : '/pending-approval'} />;
+    return <Redirect href={userProfile.is_approved ? '/(rider)' : '/pending-approval'} />;
   }
 
   return <Redirect href="/(tabs)" />;

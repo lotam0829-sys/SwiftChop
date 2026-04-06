@@ -42,15 +42,19 @@ function RootNavigator() {
       if (userProfile.role === 'restaurant') {
         router.replace(userProfile.is_approved ? '/(restaurant)' : '/pending-approval');
       } else if (userProfile.role === 'rider') {
-        router.replace(userProfile.is_approved ? '/(tabs)' : '/pending-approval');
+        router.replace(userProfile.is_approved ? '/(rider)' : '/pending-approval');
       } else {
         router.replace('/(tabs)');
       }
       return;
     }
 
-    if (isAuthenticated && isPending && userProfile?.role === 'restaurant' && userProfile.is_approved) {
-      router.replace('/(restaurant)');
+    if (isAuthenticated && isPending) {
+      if (userProfile?.role === 'restaurant' && userProfile.is_approved) {
+        router.replace('/(restaurant)');
+      } else if (userProfile?.role === 'rider' && userProfile.is_approved) {
+        router.replace('/(rider)');
+      }
     }
   }, [isLoading, isAuthenticated, userProfile?.role, userProfile?.is_approved, segments]);
 
@@ -71,6 +75,7 @@ function RootNavigator() {
         <Stack.Screen name="signup" />
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(rider)" />
         <Stack.Screen name="(restaurant)" />
         <Stack.Screen name="restaurant/[id]" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="cart" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />

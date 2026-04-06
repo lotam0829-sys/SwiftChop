@@ -36,7 +36,10 @@ export default function PendingApprovalScreen() {
 
         <Text style={styles.title}>Almost there, {userProfile?.username?.split(' ')[0] || 'Partner'}!</Text>
         <Text style={styles.subtitle}>
-          Your restaurant <Text style={{ fontWeight: '700', color: theme.textPrimary }}>{userProfile?.restaurant_name || 'application'}</Text> is being reviewed by our team. We will notify you via email at <Text style={{ fontWeight: '600' }}>{userProfile?.email}</Text> once approved.
+          {userProfile?.role === 'rider'
+            ? <>Your dispatch rider application is being reviewed by our team. We will notify you via email at <Text style={{ fontWeight: '600' }}>{userProfile?.email}</Text> once approved.</>
+            : <>Your restaurant <Text style={{ fontWeight: '700', color: theme.textPrimary }}>{userProfile?.restaurant_name || 'application'}</Text> is being reviewed by our team. We will notify you via email at <Text style={{ fontWeight: '600' }}>{userProfile?.email}</Text> once approved.</>
+          }
         </Text>
 
         <View style={styles.infoCard}>

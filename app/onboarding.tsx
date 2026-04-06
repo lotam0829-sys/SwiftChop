@@ -146,6 +146,7 @@ export default function OnboardingScreen() {
   // Rider state
   const [riderName, setRiderName] = useState('');
   const [riderPhone, setRiderPhone] = useState('');
+  const [riderEmail, setRiderEmail] = useState(user?.email || '');
   const [vehicleType, setVehicleType] = useState('');
   const [idType, setIdType] = useState<'nin' | 'passport'>('nin');
   const [idNumber, setIdNumber] = useState('');
@@ -389,6 +390,7 @@ export default function OnboardingScreen() {
   // ====== RIDER FLOW ======
   const handleRiderDetailsNext = () => {
     if (!riderName.trim()) { showAlert('Required', 'Please enter your full name'); return; }
+    if (!riderEmail.trim() || !riderEmail.includes('@')) { showAlert('Required', 'Please enter a valid email address'); return; }
     if (!riderPhone.trim()) { showAlert('Required', 'Please enter your phone number'); return; }
     if (!vehicleType) { showAlert('Required', 'Please select your vehicle type'); return; }
     setPhase('rider_id');
@@ -616,6 +618,14 @@ export default function OnboardingScreen() {
               <View style={styles.inputWrap}>
                 <MaterialIcons name="person" size={20} color={theme.textMuted} style={styles.inputIcon} />
                 <TextInput style={styles.input} placeholder="Your full name" placeholderTextColor={theme.textMuted} value={riderName} onChangeText={setRiderName} />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Email Address *</Text>
+              <View style={styles.inputWrap}>
+                <MaterialIcons name="email" size={20} color={theme.textMuted} style={styles.inputIcon} />
+                <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={theme.textMuted} value={riderEmail} onChangeText={setRiderEmail} keyboardType="email-address" autoCapitalize="none" />
               </View>
             </View>
 

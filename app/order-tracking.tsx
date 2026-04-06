@@ -36,7 +36,6 @@ export default function OrderTrackingScreen() {
   const steps = isPickup ? pickupSteps : deliverySteps;
 
   const [currentStep, setCurrentStep] = useState(0);
-  const [showTrackingWebView, setShowTrackingWebView] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const statusIndex = steps.findIndex(s => s.key === order?.status);
@@ -69,13 +68,6 @@ export default function OrderTrackingScreen() {
     };
   }, [order?.status, orderId]);
 
-  // Auto-dismiss tracking WebView when delivered
-  useEffect(() => {
-    if (order?.status === 'delivered' && showTrackingWebView) {
-      setShowTrackingWebView(false);
-    }
-  }, [order?.status, showTrackingWebView]);
-
   const pulseScale = useSharedValue(1);
   useEffect(() => {
     pulseScale.value = withRepeat(
@@ -95,24 +87,34 @@ export default function OrderTrackingScreen() {
     && !order.shipday_tracking_url.includes('undefined')
     && !order.shipday_tracking_url.includes('null');
 
-  // Gmail receipt deep link
+  // Gmail receipt deep link — cross-platform
   const handleViewGmailReceipt = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const gmailUrl = 'googlegmail://';
-    const mailtoUrl = 'mailto:';
     try {
-      const canOpenGmail = await Linking.canOpenURL(gmailUrl);
-      if (canOpenGmail) {
-        await Linking.openURL(gmailUrl);
-        return;
+      if (Platform.OS === 'ios') {
+        const canOpenGmail = await Linking.canOpenURL('googlegmail://');
+        if (canOpenGmail) {
+          await Linking.openURL('googlegmail://');
+          return;
+        }
+        // Fallback to iOS Mail app
+        const canOpenMail = await Linking.canOpenURL('message://');
+        if (canOpenMail) {
+          await Linking.openURL('message://');
+          return;
+        }
       }
-      // Fallback to default mail app
-      const canOpenMail = await Linking.canOpenURL(mailtoUrl);
-      if (canOpenMail) {
-        await Linking.openURL(mailtoUrl);
-      }
+      // Android: open Gmail via https (opens in Gmail app if installed)
+      // Also works as web fallback on iOS
+      await Linking.openURL('https://mail.google.com/mail/');
     } catch (err) {
       console.log('Could not open mail app:', err);
+      // Last resort fallback
+      try {
+        await Linking.openURL('mailto:');
+      } catch (e) {
+        console.log('Mailto fallback failed:', e);
+      }
     }
   }, []);
 
@@ -120,20 +122,63 @@ export default function OrderTrackingScreen() {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Order not found</Text></View>;
   }
 
-  // Shipday Tracking WebView (embedded)
-  if (showTrackingWebView && hasValidTrackingUrl) {
+  // ===== DELIVERY: Show WebView directly when tracking URL is available =====
+  if (!isPickup && hasValidTrackingUrl && order.status !== 'delivered' && order.status !== 'cancelled') {
     return (
       <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
         <View style={styles.header}>
-          <Pressable onPress={() => setShowTrackingWebView(false)} style={styles.backBtn}>
+          <Pressable onPress={() => router.replace('/(tabs)/orders')} style={styles.backBtn}>
             <MaterialIcons name="close" size={22} color={theme.textPrimary} />
           </Pressable>
-          <Text style={styles.headerTitle}>Live Tracking</Text>
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={styles.headerTitle}>Live Tracking</Text>
+            <Text style={styles.headerSub}>{order.restaurant_name} · {order.order_number}</Text>
+          </View>
           <View style={styles.liveBadge}>
             <View style={styles.liveIndicator} />
             <Text style={styles.liveText}>LIVE</Text>
           </View>
         </View>
+
+        {/* Compact status bar */}
+        <View style={styles.statusBar}>
+          <MaterialIcons
+            name={order.status === 'on_the_way' ? 'delivery-dining' : order.status === 'preparing' ? 'restaurant' : 'check-circle'}
+            size={18}
+            color="#FFF"
+          />
+          <Text style={styles.statusBarText}>
+            {order.status === 'on_the_way' ? 'Rider is on the way'
+              : order.status === 'preparing' ? 'Restaurant is preparing your order'
+              : order.status === 'confirmed' ? 'Order confirmed'
+              : 'Order in progress'}
+          </Text>
+          {order.shipday_eta ? (
+            <Text style={styles.statusBarEta}>ETA: {order.shipday_eta}</Text>
+          ) : order.estimated_delivery ? (
+            <Text style={styles.statusBarEta}>{order.estimated_delivery}</Text>
+          ) : null}
+        </View>
+
+        {/* Carrier info bar */}
+        {order.shipday_carrier_name ? (
+          <View style={styles.carrierBar}>
+            <View style={styles.carrierAvatar}>
+              <MaterialIcons name="person" size={18} color={theme.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.carrierBarName}>{order.shipday_carrier_name}</Text>
+              <Text style={styles.carrierBarLabel}>Your rider</Text>
+            </View>
+            {order.shipday_carrier_phone ? (
+              <Pressable onPress={() => Linking.openURL(`tel:${order.shipday_carrier_phone}`)} style={styles.carrierCallBtn}>
+                <MaterialIcons name="phone" size={18} color={theme.primary} />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* WebView - takes remaining space */}
         <WebView
           source={{ uri: order.shipday_tracking_url! }}
           style={{ flex: 1 }}
@@ -141,11 +186,20 @@ export default function OrderTrackingScreen() {
           javaScriptEnabled
           domStorageEnabled
         />
+
+        {/* Bottom actions */}
+        <View style={[styles.webViewBottom, { paddingBottom: insets.bottom + 12 }]}>
+          <Pressable onPress={handleViewGmailReceipt} style={styles.gmailReceiptBtnCompact}>
+            <MaterialIcons name="email" size={16} color="#EA4335" />
+            <Text style={styles.gmailReceiptTextCompact}>View Receipt in Gmail</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
 
-  // Pickup status-specific messaging
+  // ===== PICKUP or NO TRACKING URL or DELIVERED/CANCELLED: Status view =====
+
   const getPickupMessage = () => {
     if (!isPickup) return null;
     switch (order.status) {
@@ -223,38 +277,10 @@ export default function OrderTrackingScreen() {
           </View>
         ) : null}
 
-        {/* Delivery tracking - embedded WebView button */}
-        {!isPickup ? (
-          <>
-            <View style={styles.trackingNotice}>
-              <MaterialIcons name="notifications-active" size={20} color="#2563EB" />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.trackingNoticeTitle}>Live Tracking Available</Text>
-                <Text style={styles.trackingNoticeText}>
-                  A tracking link will be sent to your phone number and email once a rider is assigned. You can also track your order live below.
-                </Text>
-              </View>
-            </View>
-
-            {hasValidTrackingUrl ? (
-              <Pressable onPress={() => setShowTrackingWebView(true)} style={styles.trackingLinkBtn}>
-                <MaterialIcons name="map" size={20} color="#FFF" />
-                <Text style={styles.trackingLinkText}>Track Live on Map</Text>
-                <MaterialIcons name="fullscreen" size={18} color="rgba(255,255,255,0.7)" />
-              </Pressable>
-            ) : (
-              <View style={styles.trackingPending}>
-                <MaterialIcons name="hourglass-top" size={18} color={theme.textMuted} />
-                <Text style={styles.trackingPendingText}>Live tracking link will appear here once a rider is assigned to your order.</Text>
-              </View>
-            )}
-          </>
-        ) : null}
-
-        {/* Carrier info (delivery only) */}
+        {/* Carrier info (delivery only, when no tracking URL) */}
         {!isPickup && order.shipday_carrier_name ? (
           <View style={styles.carrierCard}>
-            <View style={styles.carrierAvatar}>
+            <View style={styles.carrierAvatarLarge}>
               <MaterialIcons name="person" size={24} color={theme.primary} />
             </View>
             <View style={{ flex: 1 }}>
@@ -384,9 +410,25 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 12 },
   backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: theme.backgroundSecondary, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: theme.textPrimary },
+  headerSub: { fontSize: 12, color: theme.textMuted, marginTop: 2 },
   liveBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#FEE2E2' },
   liveIndicator: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' },
   liveText: { fontSize: 11, fontWeight: '800', color: '#EF4444' },
+  // Compact status bar for WebView mode
+  statusBar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.primary, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, marginBottom: 8 },
+  statusBarText: { flex: 1, fontSize: 13, fontWeight: '600', color: '#FFF' },
+  statusBarEta: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.8)' },
+  // Carrier bar for WebView mode
+  carrierBar: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.backgroundSecondary, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, marginBottom: 8, borderWidth: 1, borderColor: theme.border },
+  carrierAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
+  carrierBarName: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
+  carrierBarLabel: { fontSize: 11, color: theme.textMuted },
+  carrierCallBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
+  // Bottom actions for WebView mode
+  webViewBottom: { paddingTop: 8, paddingHorizontal: 4, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: theme.border },
+  gmailReceiptBtnCompact: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderRadius: 10, backgroundColor: '#FEF2F2' },
+  gmailReceiptTextCompact: { fontSize: 13, fontWeight: '600', color: '#DC2626' },
+  // Status view styles
   successBanner: { alignItems: 'center', paddingVertical: 24, backgroundColor: theme.primaryFaint, borderRadius: 20, marginBottom: 16 },
   successIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   successTitle: { fontSize: 22, fontWeight: '700', color: theme.textPrimary },
@@ -397,15 +439,8 @@ const styles = StyleSheet.create({
   pickupLocationAddr: { fontSize: 13, color: theme.textSecondary, marginTop: 2 },
   readyBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: '#10B981' },
   readyBadgeText: { fontSize: 11, fontWeight: '800', color: '#FFF' },
-  trackingNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 16, borderRadius: 14, backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 12 },
-  trackingNoticeTitle: { fontSize: 14, fontWeight: '700', color: '#1E40AF', marginBottom: 4 },
-  trackingNoticeText: { fontSize: 13, color: '#6B7280', lineHeight: 19 },
-  trackingLinkBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: theme.primary, paddingVertical: 14, borderRadius: 14, marginBottom: 16 },
-  trackingLinkText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
-  trackingPending: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 14, backgroundColor: theme.backgroundSecondary, marginBottom: 16, borderWidth: 1, borderColor: theme.border },
-  trackingPendingText: { flex: 1, fontSize: 13, color: theme.textMuted, lineHeight: 19 },
   carrierCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.backgroundSecondary, borderRadius: 14, padding: 14, marginBottom: 16 },
-  carrierAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
+  carrierAvatarLarge: { width: 48, height: 48, borderRadius: 24, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
   carrierName: { fontSize: 15, fontWeight: '700', color: theme.textPrimary },
   carrierLabel: { fontSize: 12, color: theme.textMuted, marginTop: 2 },
   callBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
