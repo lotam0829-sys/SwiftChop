@@ -4,9 +4,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '../constants/theme';
+import { useApp } from '../contexts/AppContext';
 
 export default function PaymentMethodsScreen() {
   const insets = useSafeAreaInsets();
+  const { userProfile } = useApp();
+
+  const displayName = userProfile?.username || userProfile?.email?.split('@')[0] || 'YOUR NAME';
+  const maskedName = displayName.toUpperCase();
 
   return (
     <ScrollView
@@ -30,15 +35,15 @@ export default function PaymentMethodsScreen() {
             </View>
             <Text style={styles.cardBrand}>Paystack</Text>
           </View>
-          <Text style={styles.cardNumber}>{"\u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022"}</Text>
+          <Text style={styles.cardNumber}>{"\u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  ****"}</Text>
           <View style={styles.cardBottomRow}>
             <View>
               <Text style={styles.cardSmallLabel}>CARDHOLDER</Text>
-              <Text style={styles.cardHolderName}>YOUR NAME</Text>
+              <Text style={styles.cardHolderName}>{maskedName}</Text>
             </View>
             <View style={{ alignItems: 'flex-end' }}>
               <Text style={styles.cardSmallLabel}>EXPIRES</Text>
-              <Text style={styles.cardHolderName}>MM/YY</Text>
+              <Text style={styles.cardHolderName}>**/**</Text>
             </View>
           </View>
           <View style={styles.cardTypeRow}>
@@ -50,7 +55,7 @@ export default function PaymentMethodsScreen() {
           </View>
         </LinearGradient>
         <Text style={styles.cardCaption}>
-          Your card details are entered securely at checkout via Paystack. No card information is stored until you complete your first payment.
+          Your card is stored securely and encrypted by Paystack — we never see your full card details.
         </Text>
       </View>
 

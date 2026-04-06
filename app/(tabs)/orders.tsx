@@ -6,6 +6,7 @@ import { FlashList } from '@shopify/flash-list';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import { Linking, Platform } from 'react-native';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
@@ -96,6 +97,21 @@ export default function OrdersScreen() {
     }
   }, [reorder, router]);
 
+  const handleViewGmailReceipt = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      if (Platform.OS === 'ios') {
+        const canOpenGmail = await Linking.canOpenURL('googlegmail://');
+        if (canOpenGmail) { await Linking.openURL('googlegmail://'); return; }
+        const canOpenMail = await Linking.canOpenURL('message://');
+        if (canOpenMail) { await Linking.openURL('message://'); return; }
+      }
+      await Linking.openURL('https://mail.google.com/mail/');
+    } catch {
+      try { await Linking.openURL('mailto:'); } catch {}
+    }
+  }, []);
+
   const filterCounts = useMemo(() => ({
     all: customerOrders.length,
     active: customerOrders.filter(o => ['pending', 'confirmed', 'preparing', 'on_the_way'].includes(o.status)).length,
@@ -140,16 +156,22 @@ export default function OrdersScreen() {
           <Text style={styles.totalValue}>{"\u20A6"}{item.total.toLocaleString()}</Text>
         </View>
 
-        {/* Reorder + Review buttons for delivered orders */}
+        {/* Reorder + Review + Receipt buttons for delivered orders */}
         {isDelivered ? (
-          <View style={styles.deliveredActions}>
-            <Pressable onPress={() => handleReorder(item)} style={styles.reorderBtn}>
-              <MaterialIcons name="replay" size={16} color="#FFF" />
-              <Text style={styles.reorderBtnText}>Reorder</Text>
-            </Pressable>
-            <Pressable onPress={() => handleReviewPress(item)} style={styles.reviewBtn}>
-              <MaterialIcons name="star" size={16} color={theme.primary} />
-              <Text style={styles.reviewBtnText}>Review</Text>
+          <View style={{ gap: 8, marginTop: 12 }}>
+            <View style={styles.deliveredActions}>
+              <Pressable onPress={() => handleReorder(item)} style={styles.reorderBtn}>
+                <MaterialIcons name="replay" size={16} color="#FFF" />
+                <Text style={styles.reorderBtnText}>Reorder</Text>
+              </Pressable>
+              <Pressable onPress={() => handleReviewPress(item)} style={styles.reviewBtn}>
+                <MaterialIcons name="star" size={16} color={theme.primary} />
+                <Text style={styles.reviewBtnText}>Review</Text>
+              </Pressable>
+            </View>
+            <Pressable onPress={handleViewGmailReceipt} style={styles.receiptBtn}>
+              <MaterialIcons name="email" size={16} color="#EA4335" />
+              <Text style={styles.receiptBtnText}>View Receipt in Gmail</Text>
             </Pressable>
           </View>
         ) : null}
@@ -292,6 +314,8 @@ const styles = StyleSheet.create({
   reorderBtnText: { fontSize: 14, fontWeight: '600', color: '#FFF' },
   reviewBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted },
   reviewBtnText: { fontSize: 14, fontWeight: '600', color: theme.primary },
+  receiptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderRadius: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' },
+  receiptBtnText: { fontSize: 13, fontWeight: '600', color: '#DC2626' },
   trackHint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10, paddingVertical: 8 },
   trackHintText: { fontSize: 12, color: theme.info, fontWeight: '500' },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },

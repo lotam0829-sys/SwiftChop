@@ -13,7 +13,6 @@ export default function RiderSettingsScreen() {
   const { logout } = useAuth();
   const { showAlert } = useAlert();
 
-  const [orderNotifications, setOrderNotifications] = useState(true);
   const [paymentNotifications, setPaymentNotifications] = useState(true);
   const [promotionalNotifications, setPromotionalNotifications] = useState(false);
 
@@ -43,22 +42,6 @@ export default function RiderSettingsScreen() {
         {/* Notifications */}
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Notifications</Text>
-
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <MaterialIcons name="delivery-dining" size={20} color="#10B981" />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingLabel}>Delivery Requests</Text>
-                <Text style={styles.settingDesc}>Get notified when new delivery requests come in</Text>
-              </View>
-            </View>
-            <Switch
-              value={orderNotifications}
-              onValueChange={setOrderNotifications}
-              trackColor={{ false: '#3A3A3A', true: 'rgba(16,185,129,0.4)' }}
-              thumbColor={orderNotifications ? '#10B981' : '#6B7280'}
-            />
-          </View>
 
           <View style={styles.settingRow}>
             <View style={styles.settingInfo}>

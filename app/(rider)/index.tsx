@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl, FlatList, Linking, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -162,6 +162,27 @@ export default function RiderEarningsScreen() {
           </View>
         </LinearGradient>
 
+        {/* Start Earning CTA */}
+        <Pressable
+          onPress={() => {
+            // Open Shipday Drive app or store listing
+            const iosUrl = 'https://apps.apple.com/app/shipday-drive/id1589416498';
+            const androidUrl = 'https://play.google.com/store/apps/details?id=com.shipday.driver';
+            const url = Platform.OS === 'ios' ? iosUrl : androidUrl;
+            Linking.openURL(url);
+          }}
+          style={styles.startEarningBtn}
+        >
+          <View style={styles.startEarningIcon}>
+            <MaterialIcons name="delivery-dining" size={28} color="#FFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.startEarningTitle}>Start Earning</Text>
+            <Text style={styles.startEarningSub}>Open Shipday Drive to accept delivery requests</Text>
+          </View>
+          <MaterialIcons name="open-in-new" size={20} color="#10B981" />
+        </Pressable>
+
         {/* Quick Stats */}
         <View style={styles.quickStats}>
           <View style={styles.quickStatCard}>
@@ -228,6 +249,10 @@ const styles = StyleSheet.create({
   quickStatCard: { flex: 1, backgroundColor: '#1A1A1A', borderRadius: 16, padding: 16, alignItems: 'center', gap: 6, borderWidth: 1, borderColor: '#2A2A2A' },
   quickStatValue: { fontSize: 18, fontWeight: '700', color: '#FFF' },
   quickStatLabel: { fontSize: 12, color: '#9CA3AF' },
+  startEarningBtn: { flexDirection: 'row', alignItems: 'center', gap: 14, marginHorizontal: 16, marginBottom: 16, padding: 16, borderRadius: 16, backgroundColor: 'rgba(16,185,129,0.12)', borderWidth: 1.5, borderColor: 'rgba(16,185,129,0.3)' },
+  startEarningIcon: { width: 52, height: 52, borderRadius: 16, backgroundColor: '#059669', alignItems: 'center', justifyContent: 'center' },
+  startEarningTitle: { fontSize: 17, fontWeight: '700', color: '#10B981', marginBottom: 2 },
+  startEarningSub: { fontSize: 13, color: '#6B7280' },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 12 },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#FFF' },
   sectionCount: { fontSize: 13, color: '#6B7280' },

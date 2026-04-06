@@ -68,14 +68,28 @@ Deno.serve(async (req: Request) => {
       console.error('Failed to update user_profiles:', profileError);
     }
 
-    // Update restaurants table
-    const { error: restError } = await supabaseAdmin
-      .from('restaurants')
-      .update({ paystack_subaccount_code: subaccountCode })
-      .eq('owner_id', user_id);
+    // Check if this user is a restaurant owner — update restaurants table too
+    const { data: userProfile } = await supabaseAdmin
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user_id)
+      .single();
 
-    if (restError) {
-      console.error('Failed to update restaurants:', restError);
+    if (userProfile?.role === 'restaurant') {
+      const { error: restError } = await supabaseAdmin
+        .from('restaurants')
+        .update({ paystack_subaccount_code: subaccountCode })
+        .eq('owner_id', user_id);
+
+      if (restError) {
+        console.error('Failed to update restaurants:', restError);
+      }
+    }
+
+    // For riders, the subaccount_code is already stored in user_profiles
+    // No additional table update needed — rider payments use user_profiles.paystack_subaccount_code
+    if (userProfile?.role === 'rider') {
+      console.log('Rider subaccount created successfully:', subaccountCode);
     }
 
     return new Response(

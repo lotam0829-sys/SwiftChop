@@ -123,6 +123,7 @@ export default function OnboardingScreen() {
   const [restaurantCuisine, setRestaurantCuisine] = useState('');
   const [restaurantDescription, setRestaurantDescription] = useState('');
   const [restaurantPhone, setRestaurantPhone] = useState('');
+  const [restaurantEmail, setRestaurantEmail] = useState(user?.email || '');
   const [minOrder, setMinOrder] = useState('2000');
   const [deliveryTime, setDeliveryTime] = useState('25-35 min');
 
@@ -254,6 +255,7 @@ export default function OnboardingScreen() {
     if (!restaurantAddress.trim()) { showAlert('Required', 'Please enter your restaurant address'); return; }
     if (!restaurantCuisine.trim()) { showAlert('Required', 'Please enter your cuisine type'); return; }
     if (!restaurantPhone.trim()) { showAlert('Required', 'Please enter a contact phone number'); return; }
+    if (!restaurantEmail.trim() || !restaurantEmail.includes('@')) { showAlert('Required', 'Please enter a valid email address'); return; }
     setPhase('bank_details');
   };
 
@@ -652,16 +654,18 @@ export default function OnboardingScreen() {
             {/* Profile photo */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Profile Photo (optional)</Text>
-              <Pressable onPress={handlePickProfilePhoto} style={styles.photoUploadBtn}>
-                {profilePhoto ? (
-                  <Image source={{ uri: profilePhoto.uri }} style={styles.profilePhotoPreview} contentFit="cover" />
-                ) : (
-                  <View style={styles.photoPlaceholder}>
-                    <MaterialIcons name="add-a-photo" size={28} color={theme.textMuted} />
-                    <Text style={styles.photoPlaceholderText}>Tap to add photo</Text>
-                  </View>
-                )}
-              </Pressable>
+              <View style={{ alignItems: 'center' }}>
+                <Pressable onPress={handlePickProfilePhoto} style={styles.photoUploadBtn}>
+                  {profilePhoto ? (
+                    <Image source={{ uri: profilePhoto.uri }} style={styles.profilePhotoPreview} contentFit="cover" />
+                  ) : (
+                    <View style={styles.photoPlaceholder}>
+                      <MaterialIcons name="add-a-photo" size={28} color={theme.textMuted} />
+                    </View>
+                  )}
+                </Pressable>
+                <Text style={{ fontSize: 12, color: theme.textMuted, marginTop: 8 }}>Tap to add photo</Text>
+              </View>
             </View>
 
             <View style={{ height: 12 }} />
@@ -949,6 +953,7 @@ export default function OnboardingScreen() {
             <View style={styles.inputGroup}><Text style={styles.inputLabel}>Restaurant Name *</Text><View style={styles.inputWrap}><MaterialIcons name="storefront" size={20} color={theme.textMuted} style={styles.inputIcon} /><TextInput style={styles.input} placeholder="e.g. Mama Nkechi Kitchen" placeholderTextColor={theme.textMuted} value={restaurantName} onChangeText={setRestaurantName} /></View></View>
             <View style={styles.inputGroup}><Text style={styles.inputLabel}>Restaurant Address *</Text><View style={styles.inputWrap}><MaterialIcons name="location-on" size={20} color={theme.textMuted} style={styles.inputIcon} /><TextInput style={styles.input} placeholder="12 Awolowo Rd, Ikoyi, Lagos" placeholderTextColor={theme.textMuted} value={restaurantAddress} onChangeText={setRestaurantAddress} /></View></View>
             <View style={styles.inputGroup}><Text style={styles.inputLabel}>Cuisine Type *</Text><View style={styles.inputWrap}><MaterialIcons name="restaurant-menu" size={20} color={theme.textMuted} style={styles.inputIcon} /><TextInput style={styles.input} placeholder="e.g. Traditional Nigerian" placeholderTextColor={theme.textMuted} value={restaurantCuisine} onChangeText={setRestaurantCuisine} /></View></View>
+            <View style={styles.inputGroup}><Text style={styles.inputLabel}>Email Address *</Text><View style={styles.inputWrap}><MaterialIcons name="email" size={20} color={theme.textMuted} style={styles.inputIcon} /><TextInput style={styles.input} placeholder="restaurant@example.com" placeholderTextColor={theme.textMuted} value={restaurantEmail} onChangeText={setRestaurantEmail} keyboardType="email-address" autoCapitalize="none" /></View></View>
             <View style={styles.inputGroup}><Text style={styles.inputLabel}>Phone Number *</Text><View style={styles.inputWrap}><MaterialIcons name="phone" size={20} color={theme.textMuted} style={styles.inputIcon} /><TextInput style={styles.input} placeholder="+234 801 234 5678" placeholderTextColor={theme.textMuted} value={restaurantPhone} onChangeText={setRestaurantPhone} keyboardType="phone-pad" /></View></View>
             <View style={styles.inputGroup}><Text style={styles.inputLabel}>Description (optional)</Text><View style={[styles.inputWrap, { height: 80, alignItems: 'flex-start', paddingVertical: 12 }]}><MaterialIcons name="description" size={20} color={theme.textMuted} style={[styles.inputIcon, { marginTop: 2 }]} /><TextInput style={[styles.input, { textAlignVertical: 'top' }]} placeholder="Tell customers about your food..." placeholderTextColor={theme.textMuted} value={restaurantDescription} onChangeText={setRestaurantDescription} multiline /></View></View>
             <View style={{ flexDirection: 'row', gap: 12 }}>

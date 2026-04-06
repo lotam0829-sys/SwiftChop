@@ -77,6 +77,11 @@ async function sendPushNotification(pushToken: string, title: string, body: stri
         data: data || {},
         priority: 'high',
         channelId: 'order-updates',
+        _contentAvailable: true,
+        // iOS: time-sensitive notification for delivery updates
+        ...(title.includes('On the Way') || title.includes('Delivered') || title.includes('Ready')
+          ? { _displayInForeground: true }
+          : {}),
       }),
     });
 

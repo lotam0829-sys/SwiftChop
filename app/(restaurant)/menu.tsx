@@ -207,6 +207,8 @@ export default function RestaurantMenuScreen() {
       bogo_end: newBogo && bogoEnd ? bogoEnd.toISOString() : null,
       category: newCategory || allCategories[0] || 'nigerian',
     } as any);
+    // Refresh data from DB to ensure new item appears
+    await refreshRestaurantData();
     setAddLoading(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     resetForm();

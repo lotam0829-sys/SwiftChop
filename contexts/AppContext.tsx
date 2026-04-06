@@ -85,12 +85,13 @@ const AppContext = createContext<AppContextType>({} as AppContextType);
 
 export const useApp = () => useContext(AppContext);
 
-// Configure notification handler
+// Configure notification handler with time-sensitive priority
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
+    priority: Notifications.AndroidNotificationPriority.HIGH,
   }),
 });
 
@@ -158,10 +159,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (Platform.OS === 'android') {
         await Notifications.setNotificationChannelAsync('order-updates', {
           name: 'Order Updates',
-          importance: Notifications.AndroidImportance.HIGH,
+          importance: Notifications.AndroidImportance.MAX,
           vibrationPattern: [0, 250, 250, 250],
           lightColor: '#FF6B00',
           sound: 'default',
+          bypassDnd: true,
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         });
       }
 
