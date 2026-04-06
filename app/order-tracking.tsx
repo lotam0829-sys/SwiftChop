@@ -4,7 +4,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence, withDelay, Easing } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
 import { useApp } from '../contexts/AppContext';
@@ -118,6 +118,34 @@ export default function OrderTrackingScreen() {
   }, [currentStep]);
 
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulseScale.value }] }));
+
+  // === Searching for Dispatch Rider animation ===
+  const ring1 = useSharedValue(0);
+  const ring2 = useSharedValue(0);
+  const ring3 = useSharedValue(0);
+  const ring1Opacity = useSharedValue(0.6);
+  const ring2Opacity = useSharedValue(0.6);
+  const ring3Opacity = useSharedValue(0.6);
+  const dotPulse = useSharedValue(1);
+
+  const isSearchingForRider = !isPickup && !order?.shipday_carrier_name && (order?.status === 'pending' || order?.status === 'confirmed');
+
+  useEffect(() => {
+    if (!isSearchingForRider) return;
+    const animConfig = { duration: 2400, easing: Easing.out(Easing.ease) };
+    ring1.value = withRepeat(withTiming(1, animConfig), -1, false);
+    ring1Opacity.value = withRepeat(withSequence(withTiming(0.6, { duration: 0 }), withTiming(0, animConfig)), -1, false);
+    ring2.value = withRepeat(withDelay(800, withTiming(1, animConfig)), -1, false);
+    ring2Opacity.value = withRepeat(withDelay(800, withSequence(withTiming(0.6, { duration: 0 }), withTiming(0, animConfig))), -1, false);
+    ring3.value = withRepeat(withDelay(1600, withTiming(1, animConfig)), -1, false);
+    ring3Opacity.value = withRepeat(withDelay(1600, withSequence(withTiming(0.6, { duration: 0 }), withTiming(0, animConfig))), -1, false);
+    dotPulse.value = withRepeat(withSequence(withTiming(1.1, { duration: 800 }), withTiming(0.95, { duration: 800 })), -1, true);
+  }, [isSearchingForRider]);
+
+  const ringStyle1 = useAnimatedStyle(() => ({ transform: [{ scale: 1 + ring1.value * 2 }], opacity: ring1Opacity.value }));
+  const ringStyle2 = useAnimatedStyle(() => ({ transform: [{ scale: 1 + ring2.value * 2 }], opacity: ring2Opacity.value }));
+  const ringStyle3 = useAnimatedStyle(() => ({ transform: [{ scale: 1 + ring3.value * 2 }], opacity: ring3Opacity.value }));
+  const dotPulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: dotPulse.value }] }));
 
   const hasTrackingUrl = !isPickup && hasValidUrl(order?.shipday_tracking_url);
 
@@ -300,8 +328,24 @@ export default function OrderTrackingScreen() {
           </Text>
         </View>
 
-        {/* Waiting for live tracking banner (delivery only, before tracking URL is available) */}
-        {isWaitingForTracking ? (
+        {/* Searching for Dispatch Rider animation */}
+        {isSearchingForRider ? (
+          <View style={styles.riderSearchCard}>
+            <View style={styles.radarContainer}>
+              <Animated.View style={[styles.radarRing, ringStyle1]} />
+              <Animated.View style={[styles.radarRing, ringStyle2]} />
+              <Animated.View style={[styles.radarRing, ringStyle3]} />
+              <Animated.View style={[styles.radarCenter, dotPulseStyle]}>
+                <MaterialIcons name="delivery-dining" size={24} color="#FFF" />
+              </Animated.View>
+            </View>
+            <Text style={styles.riderSearchTitle}>Searching for Dispatch Rider</Text>
+            <Text style={styles.riderSearchSub}>Looking for the nearest available rider to pick up your order. This usually takes a moment.</Text>
+          </View>
+        ) : null}
+
+        {/* Waiting for live tracking banner (delivery only, after rider assigned but no URL yet) */}
+        {isWaitingForTracking && !isSearchingForRider ? (
           <View style={styles.trackingLoadingCard}>
             <View style={styles.trackingLoadingIcon}>
               <ActivityIndicator size="small" color={theme.primary} />
@@ -309,7 +353,7 @@ export default function OrderTrackingScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.trackingLoadingTitle}>Setting up live tracking...</Text>
               <Text style={styles.trackingLoadingText}>
-                Live map tracking will appear automatically once your order is dispatched. This usually takes a moment.
+                Live map tracking will appear automatically once your rider is on the way.
               </Text>
             </View>
           </View>
@@ -544,4 +588,11 @@ const styles = StyleSheet.create({
   reviewPromptText: { fontSize: 15, fontWeight: '700', color: theme.primary },
   homeBtn: { backgroundColor: theme.backgroundDark, borderRadius: 16, paddingVertical: 18, alignItems: 'center', marginTop: 4 },
   homeBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  // Searching for Dispatch Rider
+  riderSearchCard: { alignItems: 'center', paddingVertical: 32, paddingHorizontal: 24, borderRadius: 20, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FFEDD5', marginBottom: 20 },
+  radarContainer: { width: 140, height: 140, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  radarRing: { position: 'absolute', width: 60, height: 60, borderRadius: 30, borderWidth: 2, borderColor: theme.primary },
+  radarCenter: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center', elevation: 4, shadowColor: theme.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+  riderSearchTitle: { fontSize: 18, fontWeight: '700', color: theme.textPrimary, marginBottom: 6 },
+  riderSearchSub: { fontSize: 14, color: theme.textSecondary, textAlign: 'center', lineHeight: 20 },
 });
