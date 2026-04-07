@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Linking, ScrollView, Platform, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,6 +39,29 @@ export default function OrderTrackingScreen() {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fastPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [webViewLoading, setWebViewLoading] = useState(true);
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Tick every 30s to keep expected delivery time updated
+  useEffect(() => {
+    const ticker = setInterval(() => setCurrentTime(new Date()), 30000);
+    return () => clearInterval(ticker);
+  }, []);
+
+  // Compute dynamic expected delivery clock time
+  const expectedDeliveryTime = useMemo(() => {
+    if (!order || order.status === 'delivered' || order.status === 'cancelled') return null;
+    const now = new Date();
+    let minutesToAdd = 45; // default
+    if (order.shipday_eta) {
+      const etaMatch = order.shipday_eta.match(/(\d+)/);
+      if (etaMatch) minutesToAdd = parseInt(etaMatch[1], 10);
+    } else if (order.estimated_delivery) {
+      const match = order.estimated_delivery.match(/(\d+)/);
+      if (match) minutesToAdd = parseInt(match[1], 10);
+    }
+    const expectedTime = new Date(now.getTime() + minutesToAdd * 60000);
+    return expectedTime.toLocaleTimeString('en-NG', { timeZone: 'Africa/Lagos', hour: 'numeric', minute: '2-digit', hour12: true });
+  }, [order?.status, order?.shipday_eta, order?.estimated_delivery]);
 
   const statusIndex = steps.findIndex(s => s.key === order?.status);
 
@@ -208,7 +231,7 @@ export default function OrderTrackingScreen() {
           <Text style={styles.statusBarText}>
             {order.status === 'on_the_way' ? 'Rider is on the way'
               : order.status === 'preparing' ? 'Restaurant is preparing your order'
-              : order.status === 'confirmed' ? 'Order confirmed'
+              : order.status === 'confirmed' ? 'Searching for dispatch rider...'
               : 'Order in progress'}
           </Text>
           {order.shipday_eta ? (
@@ -324,7 +347,7 @@ export default function OrderTrackingScreen() {
             {isPickup ? (getPickupMessage() || '') :
              order.status === 'pending'
               ? 'Waiting for the restaurant to confirm'
-              : `Estimated delivery: ${order.shipday_eta || order.estimated_delivery}`}
+              : expectedDeliveryTime ? `Expected delivery by ${expectedDeliveryTime}` : 'Preparing your order'}
           </Text>
         </View>
 
@@ -489,8 +512,8 @@ export default function OrderTrackingScreen() {
           </View>
         </View>
 
-        {/* Gmail Receipt Nudge */}
-        {order.status !== 'cancelled' ? (
+        {/* Gmail Receipt Nudge - only for delivered orders */}
+        {order.status === 'delivered' ? (
           <Pressable onPress={handleViewGmailReceipt} style={styles.gmailReceiptBtn}>
             <MaterialIcons name="email" size={20} color="#EA4335" />
             <Text style={styles.gmailReceiptText}>View Receipt in Gmail</Text>

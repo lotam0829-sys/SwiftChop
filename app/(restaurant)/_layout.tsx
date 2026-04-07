@@ -1,11 +1,15 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Platform } from 'react-native';
+import { Platform, View, Text } from 'react-native';
 import { theme } from '../../constants/theme';
+import { useApp } from '../../contexts/AppContext';
 
 export default function RestaurantTabLayout() {
   const insets = useSafeAreaInsets();
+  const { restaurantOrders } = useApp();
+  const pendingCount = restaurantOrders.filter(o => o.status === 'pending').length;
+  const activeCount = restaurantOrders.filter(o => ['confirmed', 'preparing'].includes(o.status)).length;
 
   return (
     <Tabs
@@ -35,7 +39,20 @@ export default function RestaurantTabLayout() {
         name="orders"
         options={{
           title: 'Orders',
-          tabBarIcon: ({ color, size }) => <MaterialIcons name="receipt-long" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <View>
+              <MaterialIcons name="receipt-long" size={size} color={color} />
+              {pendingCount > 0 ? (
+                <View style={{ position: 'absolute', top: -4, right: -8, backgroundColor: '#EF4444', borderRadius: 9, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFF' }}>{pendingCount}</Text>
+                </View>
+              ) : activeCount > 0 ? (
+                <View style={{ position: 'absolute', top: -4, right: -8, backgroundColor: theme.primary, borderRadius: 9, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFF' }}>{activeCount}</Text>
+                </View>
+              ) : null}
+            </View>
+          ),
         }}
       />
       <Tabs.Screen

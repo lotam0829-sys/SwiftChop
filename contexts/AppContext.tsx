@@ -14,6 +14,7 @@ import {
   dispatchToShipday, fetchOrderById, savePushToken,
   fetchFavorites, addFavorite as addFavoriteDb, removeFavorite as removeFavoriteDb,
 } from '../services/supabaseData';
+import { notifyShipdayReadyForPickup } from '../services/shipdayReadyPickup';
 import { foodCategories } from '../services/mockData';
 import { config, calculateDeliveryFee } from '../constants/config';
 import * as Location from 'expo-location';
@@ -424,6 +425,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         });
       }
+      // Send push notification to customer
+      sendLocalOrderNotification(orderId, 'confirmed');
+    }
+
+    // When restaurant marks as "Ready for Pickup" (on_the_way), notify Shipday
+    if (status === 'on_the_way') {
+      const order = [...restaurantOrders, ...customerOrders].find(o => o.id === orderId);
+      const isPickupOrder = order?.delivery_address?.startsWith('PICKUP:');
+      if (!isPickupOrder) {
+        // For delivery orders, notify Shipday that food is ready for rider pickup
+        notifyShipdayReadyForPickup(orderId).then(({ success, error: shipdayErr }) => {
+          if (shipdayErr) console.log('Shipday ready-pickup note:', shipdayErr);
+          else if (success) console.log('Shipday notified: order ready for pickup');
+        });
+      }
+      sendLocalOrderNotification(orderId, 'on_the_way');
+    }
+
+    if (status === 'preparing') {
+      sendLocalOrderNotification(orderId, 'preparing');
+    }
+
+    if (status === 'cancelled') {
+      sendLocalOrderNotification(orderId, 'cancelled');
     }
   };
 
@@ -488,6 +513,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!user?.id) return;
     await updateProfileDb(user.id, updates);
     setUserProfile(prev => prev ? { ...prev, ...updates } : prev);
+  };
+
+  // === LOCAL PUSH NOTIFICATIONS FOR ORDER STATUS ===
+  const sendLocalOrderNotification = async (orderId: string, status: string) => {
+    const order = [...restaurantOrders, ...customerOrders].find(o => o.id === orderId);
+    if (!order) return;
+    const restaurantName = order.restaurant_name || 'Restaurant';
+    const messages: Record<string, { title: string; body: string }> = {
+      confirmed: { title: 'Order Accepted', body: `${restaurantName} has accepted your order. A rider will be assigned shortly.` },
+      preparing: { title: 'Being Prepared', body: `Your order from ${restaurantName} is now being prepared.` },
+      on_the_way: { title: 'Ready for Pickup', body: `Your food from ${restaurantName} is ready. A rider is on the way!` },
+      cancelled: { title: 'Order Cancelled', body: `Your order from ${restaurantName} has been cancelled.` },
+    };
+    const msg = messages[status];
+    if (!msg) return;
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: msg.title,
+          body: msg.body,
+          sound: 'default',
+          data: { orderId, status, type: 'order_update' },
+          priority: Notifications.AndroidNotificationPriority.MAX,
+        },
+        trigger: null,
+      });
+    } catch (err) {
+      console.log('Local notification error:', err);
+    }
   };
 
   const reorder = async (order: DbOrder): Promise<boolean> => {

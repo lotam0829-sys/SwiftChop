@@ -4,10 +4,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { FlashList } from '@shopify/flash-list';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { DbOrder } from '../../services/supabaseData';
-import { notifyPickupReady } from '../../services/pickupNotification';
 import { useAlert } from '@/template';
 import { formatNigerianDate, formatNigerianTime } from '../../constants/timeUtils';
 
@@ -31,9 +31,9 @@ const statusConfig: Record<string, { color: string; bg: string; label: string; n
 
 export default function RestaurantOrdersScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { restaurantOrders, updateOrderStatus, refreshRestaurantData } = useApp();
   const { showAlert } = useAlert();
-  const [notifyingOrderId, setNotifyingOrderId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
@@ -77,34 +77,40 @@ export default function RestaurantOrdersScreen() {
   }, [todayOrders]);
 
   const renderOrder = ({ item }: { item: DbOrder }) => {
-    const config = statusConfig[item.status] || statusConfig.pending;
+    const cfg = statusConfig[item.status] || statusConfig.pending;
     const time = new Date(item.created_at);
     const dateStr = formatNigerianDate(time, { year: undefined });
     const timeStr = formatNigerianTime(time);
     const items = item.order_items || [];
 
     return (
-      <View style={styles.orderCard}>
+      <Pressable
+        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push({ pathname: '/restaurant-order/[id]', params: { id: item.id } }); }}
+        style={styles.orderCard}
+      >
         <View style={styles.orderHeader}>
           <View style={{ flex: 1 }}>
             <View style={styles.orderIdRow}>
               <Text style={styles.orderId}>{item.order_number}</Text>
-              <View style={[styles.statusBadge, { backgroundColor: config.bg }]}>
-                <Text style={[styles.statusText, { color: config.color }]}>{config.label}</Text>
+              <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
+                <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
               </View>
             </View>
             <Text style={styles.customerName}>{item.customer_name || 'Customer'}</Text>
             <Text style={styles.orderTime}>{dateStr} {"\u00B7"} {timeStr}</Text>
           </View>
-          <Text style={styles.orderTotal}>{"\u20A6"}{item.total.toLocaleString()}</Text>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={styles.orderTotal}>{"\u20A6"}{item.total.toLocaleString()}</Text>
+            <MaterialIcons name="chevron-right" size={20} color="#666" style={{ marginTop: 4 }} />
+          </View>
         </View>
 
         <View style={styles.itemsList}>
-          {items.slice(0, 4).map((i, idx) => (
+          {items.slice(0, 3).map((i, idx) => (
             <Text key={idx} style={styles.itemText}>{i.quantity}x {i.name}</Text>
           ))}
-          {items.length > 4 ? (
-            <Text style={styles.moreItems}>+{items.length - 4} more</Text>
+          {items.length > 3 ? (
+            <Text style={styles.moreItems}>+{items.length - 3} more items</Text>
           ) : null}
         </View>
 
@@ -120,50 +126,14 @@ export default function RestaurantOrdersScreen() {
           ) : null}
         </View>
 
-        {config.next ? (
-          <View style={styles.actionsRow}>
-            {item.status === 'pending' ? (
-              <Pressable
-                onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); updateOrderStatus(item.id, 'cancelled'); }}
-                style={styles.rejectBtn}
-              >
-                <Text style={styles.rejectText}>Decline</Text>
-              </Pressable>
-            ) : null}
-            <Pressable
-              onPress={() => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); updateOrderStatus(item.id, config.next as string); }}
-              style={[styles.acceptBtn, { flex: item.status === 'pending' ? 1 : undefined }]}
-            >
-              <Text style={styles.acceptText}>{config.nextLabel}</Text>
-            </Pressable>
+        {/* Quick action hint */}
+        {cfg.next ? (
+          <View style={styles.quickActionHint}>
+            <MaterialIcons name="touch-app" size={14} color={theme.primary} />
+            <Text style={styles.quickActionText}>Tap to manage this order</Text>
           </View>
         ) : null}
-
-        {/* Pickup Ready Notification Button */}
-        {item.delivery_address?.startsWith('PICKUP:') && (item.status === 'preparing' || item.status === 'confirmed') ? (
-          <Pressable
-            onPress={async () => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              setNotifyingOrderId(item.id);
-              const { success, error } = await notifyPickupReady(item.id);
-              setNotifyingOrderId(null);
-              if (success) {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                showAlert('Customer Notified', 'The customer has been notified that their pickup order is ready.');
-              } else {
-                showAlert('Notification Failed', error || 'Could not notify the customer. They may not have notifications enabled.');
-              }
-            }}
-            style={styles.notifyPickupBtn}
-            disabled={notifyingOrderId === item.id}
-          >
-            <MaterialIcons name="notifications-active" size={18} color="#2563EB" />
-            <Text style={styles.notifyPickupText}>
-              {notifyingOrderId === item.id ? 'Notifying...' : 'Notify Ready for Pickup'}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
+      </Pressable>
     );
   };
 
@@ -286,6 +256,6 @@ const styles = StyleSheet.create({
   emptySubtitle: { fontSize: 14, color: '#999', marginTop: 4, textAlign: 'center' },
   clearBtn: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12, backgroundColor: 'rgba(255,107,0,0.15)' },
   clearBtnText: { fontSize: 14, fontWeight: '600', color: theme.primary },
-  notifyPickupBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10, paddingVertical: 12, borderRadius: 12, backgroundColor: '#DBEAFE', borderWidth: 1, borderColor: '#93C5FD' },
-  notifyPickupText: { fontSize: 14, fontWeight: '600', color: '#2563EB' },
+  quickActionHint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: 'rgba(255,107,0,0.08)', borderWidth: 1, borderColor: 'rgba(255,107,0,0.15)' },
+  quickActionText: { fontSize: 12, fontWeight: '600', color: theme.primary },
 });
