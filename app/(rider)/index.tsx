@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl, FlatList, Linking, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl, Linking, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
+import { useAlert } from '@/template';
 import { getSupabaseClient } from '@/template';
 import { formatNigerianDate } from '../../constants/timeUtils';
 import { createPaystackSubaccount } from '../../services/supabaseData';
@@ -21,6 +22,7 @@ interface RiderPayment {
 export default function RiderEarningsScreen() {
   const insets = useSafeAreaInsets();
   const { userProfile } = useApp();
+  const { showAlert } = useAlert();
 
   const [payments, setPayments] = useState<RiderPayment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,6 +70,59 @@ export default function RiderEarningsScreen() {
     setRefreshing(false);
   };
 
+  const handleActivateSubaccount = async () => {
+    if (!userProfile?.id) {
+      showAlert('Error', 'User profile not found. Please log out and log back in.');
+      return;
+    }
+    setCreatingSubaccount(true);
+    try {
+      const supabase = getSupabaseClient();
+      const { data: profile, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('bank_code, bank_account_number, bank_account_name, username, bank_name')
+        .eq('id', userProfile.id)
+        .single();
+
+      if (profileError || !profile) {
+        showAlert('Error', 'Could not load your profile details. Please try again.');
+        setCreatingSubaccount(false);
+        return;
+      }
+
+      if (!profile.bank_account_number || !profile.bank_code) {
+        showAlert('Bank Details Missing', 'Your bank details are not complete. Please update your bank information in your profile settings first.');
+        setCreatingSubaccount(false);
+        return;
+      }
+
+      console.log(`Activating Paystack subaccount: bank_code=${profile.bank_code}, account=${profile.bank_account_number}`);
+
+      const { data: subData, error: subError } = await createPaystackSubaccount(
+        userProfile.id,
+        profile.bank_account_name || profile.username || 'Rider',
+        profile.bank_code,
+        profile.bank_account_number
+      );
+
+      if (subError) {
+        console.log('Subaccount creation error:', subError);
+        showAlert('Activation Failed', `Could not create your payout account: ${subError}. Please contact support if this persists.`);
+      } else if (subData?.subaccount_code) {
+        console.log('Subaccount created:', subData.subaccount_code);
+        setSubaccountStatus('active');
+        showAlert('Success', 'Your Paystack payout account has been activated. You can now receive delivery payments.');
+      } else {
+        showAlert('Activation Issue', 'Subaccount was created but no code was returned. Please try refreshing.');
+      }
+    } catch (err) {
+      console.error('Subaccount setup error:', err);
+      showAlert('Error', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setCreatingSubaccount(false);
+    }
+  };
+
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const weekStart = todayStart - (now.getDay() * 86400000);
@@ -104,8 +159,8 @@ export default function RiderEarningsScreen() {
     }
   };
 
-  const renderPaymentItem = ({ item }: { item: RiderPayment }) => (
-    <View style={styles.paymentItem}>
+  const renderPaymentItem = (item: RiderPayment) => (
+    <View key={item.id} style={styles.paymentItem}>
       <View style={[styles.paymentIcon, { backgroundColor: getStatusBg(item.status) }]}>
         <MaterialIcons
           name={item.status === 'completed' ? 'check-circle' : item.status === 'pending' ? 'hourglass-top' : 'error'}
@@ -177,39 +232,9 @@ export default function RiderEarningsScreen() {
         {/* Paystack Subaccount Warning */}
         {subaccountStatus === 'missing' ? (
           <Pressable
-            onPress={async () => {
-              if (!userProfile?.id) return;
-              setCreatingSubaccount(true);
-              try {
-                const supabase = getSupabaseClient();
-                const { data: profile } = await supabase
-                  .from('user_profiles')
-                  .select('bank_code, bank_account_number, bank_account_name, username')
-                  .eq('id', userProfile.id)
-                  .single();
-                if (profile?.bank_code && profile?.bank_account_number) {
-                  const { data: subData, error: subError } = await createPaystackSubaccount(
-                    userProfile.id,
-                    profile.bank_account_name || profile.username || 'Rider',
-                    profile.bank_code,
-                    profile.bank_account_number
-                  );
-                  if (subError) {
-                    console.log('Subaccount creation error:', subError);
-                  } else if (subData?.subaccount_code) {
-                    setSubaccountStatus('active');
-                  }
-                } else {
-                  console.log('Missing bank details for subaccount creation');
-                }
-              } catch (err) {
-                console.log('Subaccount setup error:', err);
-              } finally {
-                setCreatingSubaccount(false);
-              }
-            }}
+            onPress={handleActivateSubaccount}
             disabled={creatingSubaccount}
-            style={styles.subaccountWarning}
+            style={({ pressed }) => [styles.subaccountWarning, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
           >
             <View style={styles.subaccountWarningIcon}>
               <MaterialIcons name="warning" size={22} color="#D97706" />
@@ -217,7 +242,7 @@ export default function RiderEarningsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.subaccountWarningTitle}>Payment Setup Incomplete</Text>
               <Text style={styles.subaccountWarningSub}>
-                {creatingSubaccount ? 'Setting up your payment account...' : 'Tap to activate your Paystack payout account so you can receive earnings.'}
+                {creatingSubaccount ? 'Creating your Paystack payout account...' : 'Tap to activate your Paystack payout account so you can receive earnings.'}
               </Text>
             </View>
             {creatingSubaccount ? (
@@ -239,7 +264,7 @@ export default function RiderEarningsScreen() {
             const url = 'https://apps.apple.com/ca/app/shipday-drive/id1531504620';
             Linking.openURL(url);
           }}
-          style={styles.startEarningBtn}
+          style={({ pressed }) => [styles.startEarningBtn, pressed && { opacity: 0.85 }]}
         >
           <View style={styles.startEarningIcon}>
             <MaterialIcons name="delivery-dining" size={28} color="#FFF" />
@@ -287,9 +312,7 @@ export default function RiderEarningsScreen() {
           </View>
         ) : (
           <View style={{ gap: 2 }}>
-            {payments.map(item => (
-              <View key={item.id}>{renderPaymentItem({ item })}</View>
-            ))}
+            {payments.map(item => renderPaymentItem(item))}
           </View>
         )}
       </ScrollView>

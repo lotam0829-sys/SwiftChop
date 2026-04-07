@@ -1,14 +1,14 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Pressable, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Pressable, TextInput, Linking, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Linking, Platform } from 'react-native';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
+import { useAlert } from '@/template';
 import { getImage } from '../../constants/images';
 import { DbOrder } from '../../services/supabaseData';
 import { formatNigerianDate, formatNigerianTime, NIGERIA_TIMEZONE } from '../../constants/timeUtils';
@@ -32,12 +32,16 @@ const filterTabs = [
 export default function OrdersScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { customerOrders, loadingOrders, refreshCustomerOrders, reorder } = useApp();
+  const { customerOrders, loadingOrders, refreshCustomerOrders, reorder, deleteOrders } = useApp();
+  const { showAlert } = useAlert();
 
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const filteredOrders = useMemo(() => {
     let orders = customerOrders;
@@ -71,11 +75,21 @@ export default function OrdersScreen() {
   }, [refreshCustomerOrders]);
 
   const handleOrderPress = useCallback((order: DbOrder) => {
+    if (selectMode) {
+      Haptics.selectionAsync();
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        if (next.has(order.id)) next.delete(order.id);
+        else if (['delivered', 'cancelled'].includes(order.status)) next.add(order.id);
+        return next;
+      });
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (['pending', 'confirmed', 'preparing', 'on_the_way'].includes(order.status)) {
       router.push({ pathname: '/order-tracking', params: { orderId: order.id } });
     }
-  }, [router]);
+  }, [router, selectMode]);
 
   const handleReviewPress = useCallback((order: DbOrder) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -129,7 +143,7 @@ export default function OrdersScreen() {
     const isDelivered = item.status === 'delivered';
 
     return (
-      <Pressable onPress={() => handleOrderPress(item)} style={({ pressed }) => [styles.orderCard, pressed && isActive && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}>
+      <Pressable onPress={() => handleOrderPress(item)} onLongPress={() => { if (!selectMode && ['delivered', 'cancelled'].includes(item.status)) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setSelectMode(true); setSelectedIds(new Set([item.id])); } }} style={({ pressed }) => [styles.orderCard, pressed && isActive && { opacity: 0.9, transform: [{ scale: 0.98 }] }, selectMode && selectedIds.has(item.id) && { borderWidth: 2, borderColor: '#EF4444' }]}>
         <View style={styles.orderHeader}>
           <Image source={getImage(item.restaurant_image_key)} style={styles.restaurantImg} contentFit="cover" />
           <View style={{ flex: 1 }}>
@@ -191,13 +205,65 @@ export default function OrdersScreen() {
     <SafeAreaView edges={['top']} style={styles.container}>
       <View style={styles.titleBar}>
         <Text style={styles.title}>My Orders</Text>
-        <Pressable
-          onPress={() => { Haptics.selectionAsync(); setShowSearch(!showSearch); }}
-          style={styles.searchToggle}
-        >
-          <MaterialIcons name={showSearch ? 'close' : 'search'} size={22} color={theme.textPrimary} />
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {selectMode ? (
+            <>
+              <Pressable
+                onPress={() => { setSelectMode(false); setSelectedIds(new Set()); }}
+                style={styles.searchToggle}
+              >
+                <MaterialIcons name="close" size={22} color={theme.textPrimary} />
+              </Pressable>
+              {selectedIds.size > 0 ? (
+                <Pressable
+                  onPress={() => {
+                    showAlert('Delete Orders?', `Delete ${selectedIds.size} selected order(s)? This cannot be undone.`, [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete', style: 'destructive', onPress: async () => {
+                          setDeleting(true);
+                          const success = await deleteOrders(Array.from(selectedIds));
+                          setDeleting(false);
+                          if (success) {
+                            setSelectedIds(new Set());
+                            setSelectMode(false);
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                          }
+                        }
+                      },
+                    ]);
+                  }}
+                  disabled={deleting}
+                  style={[styles.searchToggle, { backgroundColor: '#FEE2E2' }]}
+                >
+                  {deleting ? <ActivityIndicator size="small" color="#EF4444" /> : <MaterialIcons name="delete" size={22} color="#EF4444" />}
+                </Pressable>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <Pressable
+                onPress={() => { Haptics.selectionAsync(); setSelectMode(true); }}
+                style={styles.searchToggle}
+              >
+                <MaterialIcons name="checklist" size={22} color={theme.textPrimary} />
+              </Pressable>
+              <Pressable
+                onPress={() => { Haptics.selectionAsync(); setShowSearch(!showSearch); }}
+                style={styles.searchToggle}
+              >
+                <MaterialIcons name={showSearch ? 'close' : 'search'} size={22} color={theme.textPrimary} />
+              </Pressable>
+            </>
+          )}
+        </View>
       </View>
+
+      {selectMode ? (
+        <View style={styles.selectBanner}>
+          <Text style={styles.selectBannerText}>{selectedIds.size} selected — Tap completed orders to select</Text>
+        </View>
+      ) : null}
 
       {/* Search bar */}
       {showSearch ? (
@@ -324,4 +390,6 @@ const styles = StyleSheet.create({
   emptySubtitle: { fontSize: 14, color: theme.textSecondary, textAlign: 'center', lineHeight: 20 },
   clearFilterBtn: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12, backgroundColor: theme.primaryFaint },
   clearFilterText: { fontSize: 14, fontWeight: '600', color: theme.primary },
+  selectBanner: { backgroundColor: theme.primaryFaint, paddingVertical: 10, paddingHorizontal: 16, marginHorizontal: 16, borderRadius: 12, marginBottom: 12 },
+  selectBannerText: { fontSize: 13, fontWeight: '600', color: theme.primary, textAlign: 'center' },
 });

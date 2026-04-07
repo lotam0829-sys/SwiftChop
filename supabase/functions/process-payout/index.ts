@@ -64,6 +64,14 @@ async function createTransferRecipient(
   bankCode: string
 ): Promise<{ recipient_code: string } | null> {
   try {
+    // In Paystack test mode, use 'test-bank' for test accounts
+    const isTestKey = paystackSecret.startsWith('sk_test_');
+    let effectiveBankCode = bankCode;
+    if (isTestKey && (bankCode === '001' || accountNumber === '0000000000')) {
+      effectiveBankCode = 'test-bank';
+      console.log(`Test mode: mapping bank_code '${bankCode}' -> 'test-bank' for transfer recipient`);
+    }
+
     const response = await fetch('https://api.paystack.co/transferrecipient', {
       method: 'POST',
       headers: {
@@ -74,7 +82,7 @@ async function createTransferRecipient(
         type: 'nuban',
         name,
         account_number: accountNumber,
-        bank_code: bankCode,
+        bank_code: effectiveBankCode,
         currency: 'NGN',
       }),
     });

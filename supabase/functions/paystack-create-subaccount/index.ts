@@ -24,7 +24,17 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // In Paystack test mode, bank_code must be 'test-bank' for test accounts
+    // Map common test codes to 'test-bank'
+    const isTestKey = paystackSecret.startsWith('sk_test_');
+    let effectiveBankCode = bank_code;
+    if (isTestKey && (bank_code === '001' || account_number === '0000000000')) {
+      effectiveBankCode = 'test-bank';
+      console.log(`Test mode detected: mapping bank_code '${bank_code}' -> 'test-bank'`);
+    }
+
     // Create subaccount on Paystack
+    console.log(`Creating subaccount: business_name=${business_name}, bank_code=${effectiveBankCode}, account=${account_number}`);
     const response = await fetch('https://api.paystack.co/subaccount', {
       method: 'POST',
       headers: {
@@ -33,7 +43,7 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         business_name,
-        bank_code,
+        bank_code: effectiveBankCode,
         account_number,
         percentage_charge: percentage_charge || 0,
       }),

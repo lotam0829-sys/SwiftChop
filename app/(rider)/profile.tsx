@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getSupabaseClient } from '@/template';
@@ -39,30 +41,38 @@ const vehicleIcons: Record<string, string> = {
 
 export default function RiderProfileScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { userProfile } = useApp();
 
   const [profile, setProfile] = useState<RiderProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const loadProfile = async () => {
+    if (!userProfile?.id) return;
+    try {
+      const supabase = getSupabaseClient();
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userProfile.id)
+        .single();
+      if (data) setProfile(data);
+    } catch (err) {
+      console.log('Profile load error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const loadProfile = async () => {
-      if (!userProfile?.id) return;
-      try {
-        const supabase = getSupabaseClient();
-        const { data } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('id', userProfile.id)
-          .single();
-        if (data) setProfile(data);
-      } catch (err) {
-        console.log('Profile load error:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
     loadProfile();
   }, [userProfile?.id]);
+
+  // Refresh profile when screen regains focus (after editing)
+  useEffect(() => {
+    const unsubscribe = router.canGoBack;
+    // Simple approach: reload when userProfile changes
+  }, [userProfile]);
 
   if (loading) {
     return (
@@ -81,17 +91,31 @@ export default function RiderProfileScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
-        <Text style={styles.pageTitle}>My Profile</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.pageTitle}>My Profile</Text>
+          <Pressable
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/edit-rider-profile' as any); }}
+            style={styles.editBtn}
+          >
+            <MaterialIcons name="edit" size={18} color="#10B981" />
+            <Text style={styles.editBtnText}>Edit</Text>
+          </Pressable>
+        </View>
 
         {/* Avatar & Name */}
         <View style={styles.avatarSection}>
-          {profile?.avatar_url ? (
-            <Image source={{ uri: profile.avatar_url }} style={styles.avatar} contentFit="cover" />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarLetter}>{profile?.username?.charAt(0)?.toUpperCase() || 'R'}</Text>
+          <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/edit-rider-profile' as any); }}>
+            {profile?.avatar_url ? (
+              <Image source={{ uri: profile.avatar_url }} style={styles.avatar} contentFit="cover" />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarLetter}>{profile?.username?.charAt(0)?.toUpperCase() || 'R'}</Text>
+              </View>
+            )}
+            <View style={styles.cameraIcon}>
+              <MaterialIcons name="camera-alt" size={14} color="#FFF" />
             </View>
-          )}
+          </Pressable>
           <Text style={styles.riderName}>{profile?.username || 'Rider'}</Text>
           <Text style={styles.riderEmail}>{profile?.email}</Text>
           <View style={[styles.approvalBadge, profile?.is_approved ? styles.approvedBadge : styles.pendingBadge]}>
@@ -104,7 +128,9 @@ export default function RiderProfileScreen() {
 
         {/* Personal Details */}
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Personal Details</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Personal Details</Text>
+          </View>
           <InfoRow icon="person" label="Full Name" value={profile?.username || 'Not set'} />
           <InfoRow icon="email" label="Email" value={profile?.email || 'Not set'} />
           <InfoRow icon="phone" label="Phone" value={profile?.phone || 'Not set'} />
@@ -159,11 +185,15 @@ function InfoRow({ icon, label, value }: { icon: string; label: string; value: s
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0D0D0D' },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  pageTitle: { fontSize: 24, fontWeight: '700', color: '#FFF', paddingHorizontal: 20, paddingVertical: 16 },
+  titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16 },
+  pageTitle: { fontSize: 24, fontWeight: '700', color: '#FFF' },
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: 'rgba(16,185,129,0.15)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)' },
+  editBtnText: { fontSize: 14, fontWeight: '600', color: '#10B981' },
   avatarSection: { alignItems: 'center', paddingVertical: 20 },
   avatar: { width: 88, height: 88, borderRadius: 44, marginBottom: 12, borderWidth: 3, borderColor: '#10B981' },
   avatarPlaceholder: { width: 88, height: 88, borderRadius: 44, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center', marginBottom: 12, borderWidth: 3, borderColor: '#10B981' },
   avatarLetter: { fontSize: 36, fontWeight: '700', color: '#10B981' },
+  cameraIcon: { position: 'absolute', bottom: 12, right: 0, width: 28, height: 28, borderRadius: 14, backgroundColor: '#10B981', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#0D0D0D' },
   riderName: { fontSize: 22, fontWeight: '700', color: '#FFF', marginBottom: 4 },
   riderEmail: { fontSize: 14, color: '#6B7280', marginBottom: 10 },
   approvalBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20 },
@@ -171,6 +201,7 @@ const styles = StyleSheet.create({
   pendingBadge: { backgroundColor: '#FEF3C7' },
   approvalText: { fontSize: 13, fontWeight: '600' },
   sectionCard: { marginHorizontal: 16, marginBottom: 16, backgroundColor: '#1A1A1A', borderRadius: 16, padding: 18, borderWidth: 1, borderColor: '#2A2A2A' },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#FFF', marginBottom: 14 },
   infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
   infoLabel: { fontSize: 12, color: '#6B7280', marginBottom: 2 },

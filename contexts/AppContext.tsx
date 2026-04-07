@@ -13,6 +13,7 @@ import {
   insertMenuItem, updateMenuItem, deleteMenuItemById,
   dispatchToShipday, fetchOrderById, savePushToken,
   fetchFavorites, addFavorite as addFavoriteDb, removeFavorite as removeFavoriteDb,
+  deleteOrdersByIds,
 } from '../services/supabaseData';
 import { notifyShipdayReadyForPickup } from '../services/shipdayReadyPickup';
 import { foodCategories } from '../services/mockData';
@@ -67,6 +68,7 @@ interface AppContextType {
 
   updateProfile: (updates: Partial<DbUserProfile>) => Promise<void>;
   reorder: (order: DbOrder) => Promise<boolean>;
+  deleteOrders: (orderIds: string[]) => Promise<boolean>;
 
   userLocation: { latitude: number; longitude: number } | null;
   requestLocation: () => Promise<void>;
@@ -608,6 +610,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  const deleteOrders = async (orderIds: string[]): Promise<boolean> => {
+    if (orderIds.length === 0) return false;
+    const { error } = await deleteOrdersByIds(orderIds);
+    if (error) {
+      Alert.alert('Delete Error', error);
+      return false;
+    }
+    setCustomerOrders(prev => prev.filter(o => !orderIds.includes(o.id)));
+    setRestaurantOrders(prev => prev.filter(o => !orderIds.includes(o.id)));
+    return true;
+  };
+
   return (
     <AppContext.Provider value={{
       isLoading, isAuthenticated, userProfile, refreshProfile,
@@ -618,7 +632,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ownerRestaurant, restaurantOrders, restaurantMenuItems, loadingRestaurantData,
       refreshRestaurantData, updateOrderStatus,
       addMenuItem, deleteMenuItemAction, toggleMenuItemAvailability,
-      updateProfile, reorder,
+      updateProfile, reorder, deleteOrders,
       userLocation, requestLocation,
       pushToken,
       favoriteIds, isFavorite, toggleFavorite, favoriteRestaurants, loadingFavorites,

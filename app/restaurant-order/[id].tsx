@@ -12,6 +12,7 @@ import { getImage } from '../../constants/images';
 import { formatNigerianDate, formatNigerianTime } from '../../constants/timeUtils';
 import { config } from '../../constants/config';
 import { notifyPickupReady } from '../../services/pickupNotification';
+import { getSupabaseClient } from '@/template';
 
 const stageConfig: Record<string, { icon: string; color: string; bg: string; label: string; description: string }> = {
   pending: { icon: 'hourglass-top', color: '#F59E0B', bg: '#FEF3C7', label: 'New Order', description: 'Waiting for you to accept this order' },
@@ -31,8 +32,31 @@ export default function RestaurantOrderDetailScreen() {
 
   const [actionLoading, setActionLoading] = useState(false);
   const [notifying, setNotifying] = useState(false);
+  const [menuItemsMap, setMenuItemsMap] = useState<Record<string, any>>({});
 
   const order = restaurantOrders.find(o => o.id === id);
+
+  // Fetch menu items for BOGO/promo info
+  useEffect(() => {
+    if (!order?.restaurant_id) return;
+    const loadMenu = async () => {
+      try {
+        const supabase = getSupabaseClient();
+        const { data } = await supabase
+          .from('menu_items')
+          .select('id, is_bogo, bogo_description, bogo_start, bogo_end')
+          .eq('restaurant_id', order.restaurant_id);
+        if (data) {
+          const map: Record<string, any> = {};
+          data.forEach((m: any) => { map[m.id] = m; });
+          setMenuItemsMap(map);
+        }
+      } catch (err) {
+        console.log('Menu load error:', err);
+      }
+    };
+    loadMenu();
+  }, [order?.restaurant_id]);
 
   // Poll for updates every 10s
   useEffect(() => {
@@ -196,6 +220,14 @@ export default function RestaurantOrderDetailScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemName}>{item.name}</Text>
                   <Text style={styles.itemQty}>{item.quantity}x {config.currency}{item.price.toLocaleString()} each</Text>
+                  {item.menu_item_id && menuItemsMap[item.menu_item_id]?.is_bogo ? (
+                    <View style={styles.bogoTag}>
+                      <MaterialIcons name="local-offer" size={12} color="#D97706" />
+                      <Text style={styles.bogoTagText}>
+                        {menuItemsMap[item.menu_item_id]?.bogo_description || 'Buy One Get One Free'}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
                 <Text style={styles.itemTotal}>{config.currency}{(item.price * item.quantity).toLocaleString()}</Text>
               </View>
@@ -377,4 +409,6 @@ const styles = StyleSheet.create({
   secondaryActionText: { fontSize: 14, fontWeight: '600', color: '#2563EB' },
   completedBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 14, backgroundColor: '#1A1A1A' },
   completedText: { fontSize: 16, fontWeight: '700' },
+  bogoTag: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: '#FEF3C7', alignSelf: 'flex-start' },
+  bogoTagText: { fontSize: 11, fontWeight: '600', color: '#D97706' },
 });

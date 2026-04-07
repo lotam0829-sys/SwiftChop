@@ -432,6 +432,23 @@ export async function initializePaystackPayment(email: string, amount: number, o
   return { data, error: null };
 }
 
+// ---- Delete Orders ----
+
+export async function deleteOrdersByIds(orderIds: string[]): Promise<{ error: string | null }> {
+  if (orderIds.length === 0) return { error: null };
+  // Delete order_items first (cascade should handle it but be explicit)
+  const { error: itemsError } = await supabase
+    .from('order_items')
+    .delete()
+    .in('order_id', orderIds);
+  if (itemsError) return { error: itemsError.message };
+  const { error } = await supabase
+    .from('orders')
+    .delete()
+    .in('id', orderIds);
+  return { error: error?.message || null };
+}
+
 // ---- Reviews ----
 
 export async function fetchRestaurantReviews(restaurantId: string): Promise<{ data: DbReview[]; error: string | null }> {
