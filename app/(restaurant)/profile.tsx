@@ -36,7 +36,7 @@ export default function RestaurantProfileScreen() {
       title: 'ACCOUNT',
       items: [
         { icon: 'person', label: 'Account Details', sub: userProfile?.email || '', route: '/restaurant-account' },
-        { icon: 'edit', label: 'Edit Profile', sub: 'Name, phone, profile photo', route: '/edit-rider-profile' },
+        { icon: 'edit', label: 'Edit Profile', sub: 'Name, phone, profile photo', route: '/restaurant-account' },
         { icon: 'account-balance', label: 'Bank Details', sub: 'Payment withdrawal settings', route: '/restaurant-bank' },
         { icon: 'notifications', label: 'Notifications', sub: 'Order alerts, promotions', route: '/restaurant-notifications' },
       ],

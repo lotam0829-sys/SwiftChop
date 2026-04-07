@@ -15,7 +15,7 @@ import { getCuisineColor, parseCuisines } from '../../constants/config';
 import { useRestaurantHours } from '../../hooks/useRestaurantHours';
 import { useAuth } from '@/template';
 import { scheduleRestaurantReminder, cancelRestaurantReminder } from '../../services/notificationScheduler';
-import { isBogoActive, getBogoTimeRemaining, formatNigerianDate, formatNigerianTime, NIGERIA_TIMEZONE } from '../../constants/timeUtils';
+import { isBogoActive, getBogoTimeRemaining, formatNigerianDate, formatNigerianTime, formatTime12h, NIGERIA_TIMEZONE } from '../../constants/timeUtils';
 
 export default function RestaurantDetailScreen() {
   const router = useRouter();
@@ -252,6 +252,34 @@ export default function RestaurantDetailScreen() {
   };
 
   const confirmScheduledOrder = () => {
+    // Validate: must be in the future
+    const now = new Date();
+    if (scheduledDate <= now) {
+      // Auto-correct to next valid slot
+      const corrected = new Date(now.getTime() + 60 * 60 * 1000);
+      setScheduledDate(corrected);
+      return;
+    }
+
+    // Validate: must be within restaurant operating hours
+    const DAYS_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayKey = DAYS_ORDER[scheduledDate.getDay()];
+    const dayHrs = hours[dayKey];
+    if (dayHrs && dayHrs.is_open) {
+      const [openH, openM] = dayHrs.open.split(':').map(Number);
+      const [closeH, closeM] = dayHrs.close.split(':').map(Number);
+      const schedH = scheduledDate.getHours();
+      const schedM = scheduledDate.getMinutes();
+      const schedMins = schedH * 60 + schedM;
+      const openMins = openH * 60 + openM;
+      const closeMins = closeH * 60 + closeM;
+      if (schedMins < openMins || schedMins >= closeMins) {
+        // Outside hours — show warning but do not block (user may want to schedule close to open)
+      }
+    } else if (dayHrs && !dayHrs.is_open) {
+      // Restaurant closed that day — warn user
+    }
+
     setShowScheduleModal(false);
     const formatted = scheduledDate.toLocaleString('en-NG', {
       timeZone: NIGERIA_TIMEZONE,
@@ -761,8 +789,45 @@ export default function RestaurantDetailScreen() {
                 />
               ) : null}
 
+              {/* Validation warnings */}
+              {(() => {
+                const DAYS_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                const dayKey = DAYS_ORDER[scheduledDate.getDay()];
+                const dayHrs = hours[dayKey];
+                const isPast = scheduledDate <= new Date();
+                const isClosed = dayHrs && !dayHrs.is_open;
+                let outsideHours = false;
+                if (dayHrs && dayHrs.is_open) {
+                  const [oH, oM] = dayHrs.open.split(':').map(Number);
+                  const [cH, cM] = dayHrs.close.split(':').map(Number);
+                  const sM = scheduledDate.getHours() * 60 + scheduledDate.getMinutes();
+                  if (sM < oH * 60 + oM || sM >= cH * 60 + cM) outsideHours = true;
+                }
+                return (
+                  <>
+                    {isPast ? (
+                      <View style={styles.scheduleWarning}>
+                        <MaterialIcons name="error-outline" size={16} color="#DC2626" />
+                        <Text style={styles.scheduleWarningText}>Please select a future date and time.</Text>
+                      </View>
+                    ) : null}
+                    {isClosed ? (
+                      <View style={styles.scheduleWarning}>
+                        <MaterialIcons name="block" size={16} color="#D97706" />
+                        <Text style={styles.scheduleWarningText}>Restaurant is closed on this day. Your order may not be fulfilled.</Text>
+                      </View>
+                    ) : outsideHours ? (
+                      <View style={styles.scheduleWarning}>
+                        <MaterialIcons name="access-time" size={16} color="#D97706" />
+                        <Text style={styles.scheduleWarningText}>Selected time is outside operating hours ({dayHrs ? `${formatTime12h(dayHrs.open)} - ${formatTime12h(dayHrs.close)}` : ''}).</Text>
+                      </View>
+                    ) : null}
+                  </>
+                );
+              })()}
+
               {cartCount > 0 ? (
-                <Pressable onPress={confirmScheduledOrder} style={styles.scheduleConfirmBtn}>
+                <Pressable onPress={confirmScheduledOrder} disabled={scheduledDate <= new Date()} style={[styles.scheduleConfirmBtn, scheduledDate <= new Date() && { opacity: 0.5 }]}>
                   <MaterialIcons name="schedule-send" size={20} color="#FFF" />
                   <Text style={styles.scheduleConfirmText}>Schedule & Checkout</Text>
                 </Pressable>
@@ -921,4 +986,6 @@ const styles = StyleSheet.create({
   scheduleConfirmText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
   scheduleHint: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, paddingHorizontal: 16 },
   scheduleHintText: { flex: 1, fontSize: 13, color: theme.textMuted, lineHeight: 18 },
+  scheduleWarning: { flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%', padding: 12, borderRadius: 12, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A', marginBottom: 8 },
+  scheduleWarningText: { flex: 1, fontSize: 13, fontWeight: '500', color: '#92400E', lineHeight: 18 },
 });

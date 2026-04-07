@@ -33,13 +33,14 @@ const defaultHours: OperatingHours = {
   saturday: { open: '09:00', close: '23:00', is_open: true },
 };
 
-const timeOptions = [
-  '05:00', '06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00',
-  '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00',
-  '20:00', '21:00', '22:00', '23:00', '00:00',
-];
+// Full 24-hour options at 30-minute intervals for round-the-clock scheduling
+const timeOptions: string[] = [];
+for (let h = 0; h < 24; h++) {
+  timeOptions.push(`${h.toString().padStart(2, '0')}:00`);
+  timeOptions.push(`${h.toString().padStart(2, '0')}:30`);
+}
 
-// Labels for time picker in 12h AM/PM
+// Labels for time picker in 12h AM/PM (computed once)
 const timeLabels: Record<string, string> = {};
 timeOptions.forEach(t => { timeLabels[t] = formatTime12h(t); });
 
@@ -103,7 +104,35 @@ export default function RestaurantHoursScreen() {
       >
         <View style={styles.infoCard}>
           <MaterialIcons name="info-outline" size={18} color={theme.primary} />
-          <Text style={styles.infoText}>Set your operating hours for each day. Customers will see when you are open and will be notified when you are about to close.</Text>
+          <Text style={styles.infoText}>Set your operating hours for each day at 30-minute intervals. Customers see when you are open and get notified before closing. For 24-hour operation, set open to 12:00 AM and close to 11:30 PM.</Text>
+        </View>
+
+        {/* Quick Actions */}
+        <View style={styles.quickActions}>
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              const allOpen: OperatingHours = {} as any;
+              DAYS.forEach(d => { allOpen[d] = { open: '09:00', close: '22:00', is_open: true }; });
+              setHours(allOpen);
+            }}
+            style={styles.quickBtn}
+          >
+            <MaterialIcons name="select-all" size={16} color="#10B981" />
+            <Text style={styles.quickBtnText}>Open All Days</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              const h24: OperatingHours = {} as any;
+              DAYS.forEach(d => { h24[d] = { open: '00:00', close: '23:30', is_open: true }; });
+              setHours(h24);
+            }}
+            style={styles.quickBtn}
+          >
+            <MaterialIcons name="all-inclusive" size={16} color="#3B82F6" />
+            <Text style={styles.quickBtnText}>24/7 Open</Text>
+          </Pressable>
         </View>
 
         {DAYS.map((day) => {
@@ -207,6 +236,9 @@ const styles = StyleSheet.create({
   timeOption: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: '#2A2A2A' },
   timeOptionActive: { backgroundColor: theme.primary },
   timeOptionText: { fontSize: 14, fontWeight: '600', color: '#CCC' },
+  quickActions: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 16 },
+  quickBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#2A2A2A' },
+  quickBtnText: { fontSize: 12, fontWeight: '600', color: '#CCC' },
   saveBtn: { backgroundColor: theme.primary, height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   saveBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
 });
