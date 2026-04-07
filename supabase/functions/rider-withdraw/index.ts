@@ -154,6 +154,38 @@ Deno.serve(async (req: Request) => {
     const transferResult = await transferResp.json();
     console.log('Transfer result:', JSON.stringify(transferResult));
 
+    // Handle Paystack tier restrictions (starter business cannot do third-party payouts)
+    if (!transferResult.status && transferResult.message) {
+      const msg = transferResult.message.toLowerCase();
+      if (msg.includes('starter business') || msg.includes('third-party') || msg.includes('not allowed') || msg.includes('upgrade')) {
+        console.error('Paystack tier restriction:', transferResult.message);
+        // Still record as pending so rider can see it
+        await supabaseAdmin.from('rider_payments').insert({
+          rider_id: rider.id,
+          order_id: rider_id,
+          amount: amount,
+          status: 'failed',
+          payment_type: 'withdrawal',
+          paystack_reference: reference,
+          metadata: {
+            balance_before: availableBalance,
+            balance_after: availableBalance,
+            error: transferResult.message,
+            requires_upgrade: true,
+          },
+        });
+        return new Response(
+          JSON.stringify({
+            success: false,
+            status: 'failed',
+            message: 'Paystack transfers require a verified business account. The platform admin needs to complete KYC verification on Paystack to enable withdrawals. Your earnings are safe and will be available once transfers are enabled.',
+            requires_upgrade: true,
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     const transferSuccess = transferResult.status;
     const transferCode = transferResult.data?.transfer_code || null;
     const transferStatus = transferResult.data?.status || 'failed';

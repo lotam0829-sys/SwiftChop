@@ -674,7 +674,7 @@ export default function OnboardingScreen() {
             {/* Profile photo */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Profile Photo (optional)</Text>
-              <View style={{ alignItems: 'center' }}>
+              <View style={styles.photoUploadContainer}>
                 <Pressable onPress={handlePickProfilePhoto} style={styles.photoUploadBtn}>
                   {profilePhoto ? (
                     <Image source={{ uri: profilePhoto.uri }} style={styles.profilePhotoPreview} contentFit="cover" />
@@ -684,7 +684,10 @@ export default function OnboardingScreen() {
                     </View>
                   )}
                 </Pressable>
-                <Text style={{ fontSize: 12, color: theme.textMuted, marginTop: 8 }}>Tap to add photo</Text>
+                <View style={styles.photoUploadTextCol}>
+                  <Text style={styles.photoUploadTitle}>Upload a profile picture</Text>
+                  <Text style={styles.photoUploadHint}>Square photo, max 5MB. This will be visible to customers.</Text>
+                </View>
               </View>
             </View>
 
@@ -1240,8 +1243,11 @@ const styles = StyleSheet.create({
   idTypeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.backgroundSecondary, borderWidth: 1.5, borderColor: theme.border },
   idTypeBtnActive: { backgroundColor: theme.primary, borderColor: theme.primary },
   idTypeBtnText: { fontSize: 14, fontWeight: '600', color: theme.textSecondary },
-  photoUploadBtn: { width: 100, height: 100, borderRadius: 50, overflow: 'hidden', borderWidth: 2, borderColor: theme.border, borderStyle: 'dashed' },
+  photoUploadContainer: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 14, borderRadius: 14, backgroundColor: theme.backgroundSecondary, borderWidth: 1.5, borderColor: theme.border },
+  photoUploadBtn: { width: 72, height: 72, borderRadius: 36, overflow: 'hidden', borderWidth: 2, borderColor: theme.primary, borderStyle: 'dashed' },
   profilePhotoPreview: { width: '100%', height: '100%' },
   photoPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.backgroundSecondary },
-  photoPlaceholderText: { fontSize: 11, color: theme.textMuted, marginTop: 4 },
+  photoUploadTextCol: { flex: 1 },
+  photoUploadTitle: { fontSize: 14, fontWeight: '600', color: theme.textPrimary, marginBottom: 4 },
+  photoUploadHint: { fontSize: 12, color: theme.textMuted, lineHeight: 17 },
 });

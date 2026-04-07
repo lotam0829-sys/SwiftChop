@@ -2,6 +2,48 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const SHIPDAY_API_URL = 'https://api.shipday.com/orders';
+const GEOAPIFY_ROUTING_URL = 'https://api.geoapify.com/v1/routing';
+
+/**
+ * Calculate road distance between two coordinates using Geoapify Routing API.
+ * Returns distance in kilometres, or null if calculation fails.
+ */
+async function calculateRouteDistance(
+  fromLat: number, fromLng: number,
+  toLat: number, toLng: number
+): Promise<{ distance_km: number; duration_min: number } | null> {
+  const apiKey = Deno.env.get('GEOAPIFY_API_KEY');
+  if (!apiKey) {
+    console.log('GEOAPIFY_API_KEY not configured, skipping route calculation');
+    return null;
+  }
+  try {
+    const waypoints = `${fromLat},${fromLng}|${toLat},${toLng}`;
+    const url = `${GEOAPIFY_ROUTING_URL}?waypoints=${encodeURIComponent(waypoints)}&mode=drive&apiKey=${apiKey}`;
+    console.log('Geoapify routing request:', url.replace(apiKey, '***'));
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error('Geoapify routing error:', response.status, await response.text());
+      return null;
+    }
+
+    const data = await response.json();
+    const route = data?.features?.[0]?.properties;
+    if (!route) {
+      console.error('Geoapify: no route found in response');
+      return null;
+    }
+
+    const distanceKm = parseFloat((route.distance / 1000).toFixed(2));
+    const durationMin = Math.round(route.time / 60);
+    console.log(`Geoapify route: ${distanceKm}km, ${durationMin}min`);
+    return { distance_km: distanceKm, duration_min: durationMin };
+  } catch (err) {
+    console.error('Geoapify routing exception:', err);
+    return null;
+  }
+}
 
 Deno.serve(async (req: Request) => {
   // CORS preflight
@@ -204,8 +246,27 @@ Deno.serve(async (req: Request) => {
       trackingUrl = null;
     }
 
-    // Extract distance from Shipday response (km between pickup and delivery)
+    // === GEOAPIFY DISTANCE CALCULATION ===
+    // Use Geoapify Routing API for accurate road distance (preferred over Shipday estimate)
+    let routeDistance: number | null = null;
+    let routeDuration: number | null = null;
+    
+    if (restaurant?.latitude && restaurant?.longitude && customerProfile?.latitude && customerProfile?.longitude) {
+      const routeResult = await calculateRouteDistance(
+        restaurant.latitude, restaurant.longitude,
+        customerProfile.latitude, customerProfile.longitude
+      );
+      if (routeResult) {
+        routeDistance = routeResult.distance_km;
+        routeDuration = routeResult.duration_min;
+        console.log(`Geoapify calculated: ${routeDistance}km, ${routeDuration}min`);
+      }
+    }
+
+    // Fallback to Shipday distance if Geoapify fails
     const shipdayDistance = shipdayData.distance ?? null;
+    const bestDistance = routeDistance ?? (shipdayDistance && shipdayDistance > 0 ? shipdayDistance : null);
+    const bestDuration = routeDuration ?? null;
 
     // Update order with Shipday data
     const updatePayload: Record<string, any> = {
@@ -219,19 +280,27 @@ Deno.serve(async (req: Request) => {
       console.log('Storing tracking URL:', trackingUrl);
     }
 
-    // If Shipday returned an actual distance, recalculate and update delivery fee
-    if (shipdayDistance && shipdayDistance > 0) {
+    // Store route-based estimated delivery time
+    if (bestDuration && bestDuration > 0) {
+      const prepTime = 15; // estimated prep time in minutes
+      const totalMin = prepTime + bestDuration;
+      updatePayload.estimated_delivery = `${totalMin}-${totalMin + 10} min`;
+      console.log(`Updated estimated delivery: ${totalMin}-${totalMin + 10} min (route: ${bestDuration}min + prep: ${prepTime}min)`);
+    }
+
+    // If we have actual distance, recalculate and update delivery fee
+    if (bestDistance && bestDistance > 0) {
       const baseFee = 500;
       const perKmRate = 150;
       const minFee = 500;
       const maxFee = 5000;
-      const recalcFee = Math.min(maxFee, Math.max(minFee, baseFee + Math.ceil(shipdayDistance) * perKmRate));
+      const recalcFee = Math.min(maxFee, Math.max(minFee, baseFee + Math.ceil(bestDistance) * perKmRate));
 
       const feeDiff = recalcFee - (order.delivery_fee || 0);
       if (feeDiff !== 0) {
         updatePayload.delivery_fee = recalcFee;
         updatePayload.total = (order.total || 0) + feeDiff;
-        console.log(`Delivery fee adjusted: ${order.delivery_fee} -> ${recalcFee} (distance: ${shipdayDistance}km)`);
+        console.log(`Delivery fee adjusted: ${order.delivery_fee} -> ${recalcFee} (distance: ${bestDistance}km, source: ${routeDistance ? 'geoapify' : 'shipday'})`);
       }
     }
 
@@ -249,6 +318,9 @@ Deno.serve(async (req: Request) => {
         success: true,
         shipdayOrderId,
         trackingUrl,
+        route_distance_km: routeDistance,
+        route_duration_min: routeDuration,
+        distance_source: routeDistance ? 'geoapify' : (shipdayDistance ? 'shipday' : 'none'),
         shipdayResponse: shipdayData,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

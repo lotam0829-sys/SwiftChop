@@ -256,10 +256,24 @@ export default function RiderEarningsScreen() {
                   try {
                     const text = await error.context?.text();
                     const parsed = JSON.parse(text || '{}');
-                    msg = parsed.error || text || msg;
+                    msg = parsed.error || parsed.message || text || msg;
+                    // Check for Paystack tier restriction
+                    if (parsed.requires_upgrade) {
+                      showAlert(
+                        'Transfers Not Yet Enabled',
+                        'The platform needs to complete Paystack business verification before rider withdrawals can be processed. Your earnings are recorded and safe. Contact support for an update.'
+                      );
+                      setWithdrawing(false);
+                      return;
+                    }
                   } catch { }
                 }
                 showAlert('Withdrawal Failed', msg);
+              } else if (data?.requires_upgrade) {
+                showAlert(
+                  'Transfers Not Yet Enabled',
+                  data.message || 'Paystack business verification is pending. Your earnings are safe and will be available once transfers are enabled.'
+                );
               } else if (data?.success) {
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 showAlert(

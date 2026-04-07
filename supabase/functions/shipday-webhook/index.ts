@@ -186,7 +186,26 @@ Deno.serve(async (req: Request) => {
     // === TRIGGER PAYOUT ON DELIVERY ===
     if (newStatus === 'delivered' && updatedOrder?.id) {
       try {
-        const distance = order?.distance || 0;
+        // Try to get distance from Shipday webhook payload, or from the order's Geoapify-computed distance
+        let distance = order?.distance || 0;
+        
+        // If no distance from webhook, try fetching from DB (may have been set by create-shipday-order via Geoapify)
+        if (!distance || distance <= 0) {
+          try {
+            const { data: fullOrder } = await supabaseAdmin
+              .from('orders')
+              .select('delivery_fee')
+              .eq('id', updatedOrder.id)
+              .single();
+            // Reverse-calculate approximate distance from delivery_fee: fee = 500 + ceil(km) * 150
+            if (fullOrder?.delivery_fee && fullOrder.delivery_fee > 500) {
+              distance = Math.max(0, (fullOrder.delivery_fee - 500) / 150);
+              console.log(`Estimated distance from delivery_fee: ${distance}km`);
+            }
+          } catch (e) {
+            console.log('Could not fetch order for distance estimation:', e);
+          }
+        }
         console.log(`Order delivered — triggering payout for order ${updatedOrder.id}, distance: ${distance}km`);
 
         const payoutResponse = await fetch(

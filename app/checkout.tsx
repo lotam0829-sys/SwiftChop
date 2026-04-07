@@ -12,6 +12,7 @@ import { useApp } from '../contexts/AppContext';
 import { useAuth, useAlert } from '@/template';
 import { initializePaystackPayment } from '../services/supabaseData';
 import PrimaryButton from '../components/ui/PrimaryButton';
+import { useRestaurantHours } from '../hooks/useRestaurantHours';
 
 type OrderType = 'delivery' | 'pickup';
 
@@ -33,6 +34,10 @@ export default function CheckoutScreen() {
   // Paystack WebView state
   const [paystackUrl, setPaystackUrl] = useState<string | null>(null);
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+
+  // Restaurant hours enforcement
+  const restaurantHoursData = restaurant ? (restaurant as any).operating_hours : null;
+  const { isCurrentlyOpen, closingSoon, closingSoonLabel } = useRestaurantHours(restaurantHoursData);
 
   // Scheduled order info
   const scheduledTime = params.scheduledTime || null;
@@ -97,6 +102,11 @@ export default function CheckoutScreen() {
   const subaccountCode = (restaurant as any)?.paystack_subaccount_code || null;
 
   const handlePlaceOrder = async () => {
+    // Enforce restaurant operating hours
+    if (!isCurrentlyOpen) {
+      showAlert('Restaurant Closed', `${restaurant?.name || 'This restaurant'} is currently closed. Please try again during their opening hours or schedule an order from the restaurant page.`);
+      return;
+    }
     if (orderType === 'delivery' && !address.trim()) {
       showAlert('Address Required', 'Please enter a delivery address before placing your order.');
       return;
@@ -413,6 +423,22 @@ export default function CheckoutScreen() {
             </View>
           </View>
 
+          {/* Restaurant closed warning */}
+          {!isCurrentlyOpen ? (
+            <View style={styles.closedWarning}>
+              <MaterialIcons name="block" size={18} color="#DC2626" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.closedWarningTitle}>Restaurant Closed</Text>
+                <Text style={styles.closedWarningText}>This restaurant is currently closed. Go back to schedule an order or try again during opening hours.</Text>
+              </View>
+            </View>
+          ) : closingSoon ? (
+            <View style={styles.closingSoonWarning}>
+              <MaterialIcons name="access-time" size={16} color="#D97706" />
+              <Text style={styles.closingSoonWarningText}>{closingSoonLabel} — place your order soon!</Text>
+            </View>
+          ) : null}
+
           {orderType === 'delivery' ? (
             <View style={styles.feeNote}>
               <MaterialIcons name="info-outline" size={16} color={theme.textMuted} />
@@ -509,4 +535,9 @@ const styles = StyleSheet.create({
   totalLabel: { fontSize: 14, fontWeight: '600', color: theme.textSecondary },
   totalValue: { fontSize: 24, fontWeight: '700', color: theme.primary },
   pickupSaving: { fontSize: 11, color: theme.success, fontWeight: '500', marginTop: 2 },
+  closedWarning: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginHorizontal: 16, marginBottom: 16, padding: 14, borderRadius: 14, backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA' },
+  closedWarningTitle: { fontSize: 14, fontWeight: '700', color: '#DC2626', marginBottom: 4 },
+  closedWarningText: { fontSize: 12, color: '#991B1B', lineHeight: 17 },
+  closingSoonWarning: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 16, padding: 12, borderRadius: 12, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
+  closingSoonWarningText: { fontSize: 13, fontWeight: '600', color: '#92400E' },
 });

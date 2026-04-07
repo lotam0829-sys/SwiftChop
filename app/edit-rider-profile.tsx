@@ -195,10 +195,15 @@ export default function EditRiderProfileScreen() {
             </View>
 
             <View style={styles.infoCard}>
-              <MaterialIcons name="info-outline" size={18} color="#3B82F6" />
-              <Text style={styles.infoText}>
-                If you change your phone number, make sure to also update it in the Shipday Drive app so payment matching continues to work.
-              </Text>
+              <View style={styles.infoCardIcon}>
+                <MaterialIcons name="info-outline" size={18} color="#3B82F6" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoCardTitle}>Important Note</Text>
+                <Text style={styles.infoText}>
+                  If you change your phone number, make sure to also update it in the Shipday Drive app so payment matching continues to work.
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -242,8 +247,10 @@ const styles = StyleSheet.create({
   vehicleOption: { flex: 1, minWidth: '45%', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 14, borderRadius: 12, backgroundColor: '#1A1A1A', borderWidth: 1.5, borderColor: '#2A2A2A' },
   vehicleOptionActive: { backgroundColor: '#059669', borderColor: '#059669' },
   vehicleLabel: { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
-  infoCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 12, backgroundColor: 'rgba(59,130,246,0.1)', borderWidth: 1, borderColor: 'rgba(59,130,246,0.2)' },
-  infoText: { flex: 1, fontSize: 13, color: '#93C5FD', lineHeight: 19 },
+  infoCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14, borderRadius: 12, backgroundColor: 'rgba(59,130,246,0.1)', borderWidth: 1, borderColor: 'rgba(59,130,246,0.2)' },
+  infoCardIcon: { width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(59,130,246,0.15)', alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  infoCardTitle: { fontSize: 13, fontWeight: '700', color: '#93C5FD', marginBottom: 4 },
+  infoText: { fontSize: 12, color: '#93C5FD', lineHeight: 18 },
   saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 56, borderRadius: 14, backgroundColor: '#059669' },
   saveBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
 });

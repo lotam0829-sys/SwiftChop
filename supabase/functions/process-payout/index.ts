@@ -291,7 +291,45 @@ Deno.serve(async (req: Request) => {
     // === RIDER PAYOUT ===
     const isPickupOrder = order.delivery_address?.startsWith('PICKUP:');
     if (!isPickupOrder) {
-      const orderDistance = distance_km || 0;
+      // Use Geoapify route distance if available, fallback to webhook distance, then 0
+      let orderDistance = distance_km || 0;
+
+      // If distance is 0, try to calculate via Geoapify
+      if (orderDistance <= 0) {
+        try {
+          const geoapifyKey = Deno.env.get('GEOAPIFY_API_KEY');
+          if (geoapifyKey) {
+            // Fetch restaurant and customer coordinates
+            const { data: restGeo } = await supabaseAdmin
+              .from('restaurants')
+              .select('latitude, longitude')
+              .eq('id', order.restaurant_id)
+              .single();
+            const { data: custGeo } = await supabaseAdmin
+              .from('user_profiles')
+              .select('latitude, longitude')
+              .eq('id', order.customer_id)
+              .single();
+
+            if (restGeo?.latitude && restGeo?.longitude && custGeo?.latitude && custGeo?.longitude) {
+              const waypoints = `${restGeo.latitude},${restGeo.longitude}|${custGeo.latitude},${custGeo.longitude}`;
+              const routeResp = await fetch(
+                `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(waypoints)}&mode=drive&apiKey=${geoapifyKey}`
+              );
+              if (routeResp.ok) {
+                const routeData = await routeResp.json();
+                const route = routeData?.features?.[0]?.properties;
+                if (route?.distance) {
+                  orderDistance = parseFloat((route.distance / 1000).toFixed(2));
+                  console.log(`Geoapify payout distance: ${orderDistance}km`);
+                }
+              }
+            }
+          }
+        } catch (geoErr) {
+          console.error('Geoapify distance calc in payout failed:', geoErr);
+        }
+      }
       const riderPayAmount = RIDER_BASE_PAY + Math.round(orderDistance * RIDER_PER_KM_PAY);
 
       console.log(`Rider pay calculation: base=${RIDER_BASE_PAY} + ${orderDistance}km * ${RIDER_PER_KM_PAY} = ${riderPayAmount} kobo`);
