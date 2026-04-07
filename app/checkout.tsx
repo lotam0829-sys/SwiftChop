@@ -103,7 +103,9 @@ export default function CheckoutScreen() {
 
   // Get restaurant info for pickup address and subaccount
   const restaurant = cart.length > 0 ? restaurants.find(r => r.id === cart[0].restaurantId) : null;
-  const subaccountCode = (restaurant as any)?.paystack_subaccount_code || null;
+  // NOTE: Subaccount is NOT used for split payments. All funds go to SwiftChop's
+  // main account first. Restaurant/rider payouts happen AFTER delivery confirmation.
+  // This prevents premature credits.
 
   const handlePlaceOrder = async () => {
     // Enforce restaurant operating hours
@@ -137,7 +139,7 @@ export default function CheckoutScreen() {
       customerEmail,
       total,
       order.id,
-      subaccountCode,
+      null, // No subaccount split — all payment to main account
       {
         customer_name: userProfile?.username || 'Customer',
         restaurant_name: restaurant?.name || cart[0]?.restaurantName,

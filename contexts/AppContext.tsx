@@ -467,6 +467,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     if (status === 'cancelled') {
       sendLocalOrderNotification(orderId, 'cancelled');
+
+      // Trigger refund when restaurant cancels an order
+      const cancelledOrder = [...restaurantOrders, ...customerOrders].find(o => o.id === orderId);
+      if (cancelledOrder) {
+        const supabase = (await import('@/template')).getSupabaseClient();
+        supabase.functions.invoke('refund-order', {
+          body: { order_id: orderId },
+        }).then(({ data: refundData, error: refundErr }) => {
+          if (refundErr) console.log('Auto-refund note:', refundErr.message);
+          else if (refundData?.refunded) console.log('Auto-refund initiated for order:', orderId);
+          else console.log('Auto-refund result:', refundData?.message);
+        }).catch(err => console.log('Auto-refund error:', err));
+      }
     }
   };
 

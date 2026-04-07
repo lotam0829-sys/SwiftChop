@@ -13,6 +13,7 @@ import { formatNigerianDate, formatNigerianTime } from '../../constants/timeUtil
 import { config } from '../../constants/config';
 import { notifyPickupReady } from '../../services/pickupNotification';
 import { getSupabaseClient } from '@/template';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 
 const stageConfig: Record<string, { icon: string; color: string; bg: string; label: string; description: string }> = {
   pending: { icon: 'hourglass-top', color: '#F59E0B', bg: '#FEF3C7', label: 'New Order', description: 'Waiting for you to accept this order' },
@@ -80,14 +81,40 @@ export default function RestaurantOrderDetailScreen() {
   const handleReject = async () => {
     if (!order) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    showAlert('Decline Order?', 'This will cancel the order and notify the customer.', [
+    showAlert('Decline Order?', 'This will cancel the order and initiate a refund to the customer.', [
       { text: 'Keep', style: 'cancel' },
       {
-        text: 'Decline',
+        text: 'Decline & Refund',
         style: 'destructive',
         onPress: async () => {
           setActionLoading(true);
+          // First cancel the order
           await updateOrderStatus(order.id, 'cancelled');
+
+          // Then initiate refund
+          try {
+            const supabase = getSupabaseClient();
+            const { data: refundData, error: refundError } = await supabase.functions.invoke('refund-order', {
+              body: { order_id: order.id },
+            });
+
+            if (refundError) {
+              let msg = refundError.message;
+              if (refundError instanceof FunctionsHttpError) {
+                try { msg = await refundError.context?.text() || msg; } catch {}
+              }
+              console.log('Refund note:', msg);
+              showAlert('Order Declined', 'The order has been cancelled. Refund could not be processed automatically — please contact support if needed.');
+            } else if (refundData?.refunded) {
+              showAlert('Order Declined & Refunded', `The customer will receive a refund of ${"\u20A6"}${order.total.toLocaleString()}. This may take 3-5 business days.`);
+            } else {
+              showAlert('Order Declined', refundData?.message || 'The order has been cancelled and the customer has been notified.');
+            }
+          } catch (err) {
+            console.log('Refund error:', err);
+            showAlert('Order Declined', 'The order has been cancelled. If the customer was charged, a refund will be processed.');
+          }
+
           setActionLoading(false);
           router.back();
         },

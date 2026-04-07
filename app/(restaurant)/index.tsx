@@ -21,7 +21,9 @@ export default function RestaurantDashboard() {
     const today = new Date();
     return d.toDateString() === today.toDateString();
   });
-  const todayRevenue = todayOrders.reduce((s, o) => s + o.total, 0);
+  // Revenue only counts delivered orders — not pending, preparing, or cancelled
+  const todayDelivered = todayOrders.filter(o => o.status === 'delivered');
+  const todayRevenue = todayDelivered.reduce((s, o) => s + o.subtotal, 0);
   const pendingCount = restaurantOrders.filter(o => o.status === 'pending').length;
   const preparingCount = restaurantOrders.filter(o => o.status === 'preparing' || o.status === 'confirmed').length;
 
@@ -31,8 +33,10 @@ export default function RestaurantDashboard() {
     const weekAgo = new Date(now.getTime() - 7 * 86400000);
     return restaurantOrders.filter(o => new Date(o.created_at) >= weekAgo);
   }, [restaurantOrders]);
-  const weekRevenue = weekOrders.reduce((s, o) => s + o.total, 0);
-  const avgOrderValue = weekOrders.length > 0 ? Math.round(weekRevenue / weekOrders.length) : 0;
+  // Only count delivered orders for revenue
+  const weekDelivered = weekOrders.filter(o => o.status === 'delivered');
+  const weekRevenue = weekDelivered.reduce((s, o) => s + o.subtotal, 0);
+  const avgOrderValue = weekDelivered.length > 0 ? Math.round(weekRevenue / weekDelivered.length) : 0;
 
   // Popular items
   const popularItems = useMemo(() => {
@@ -94,7 +98,7 @@ export default function RestaurantDashboard() {
             </View>
           </View>
           <View style={styles.revenueMeta}>
-            <Text style={styles.revenueMetaText}>{todayOrders.length} orders today</Text>
+            <Text style={styles.revenueMetaText}>{todayDelivered.length} completed today</Text>
             <Text style={styles.revenueMetaText}>{"\u00B7"}</Text>
             <Text style={styles.revenueMetaText}>{restaurantMenuItems.filter(i => i.is_available).length} items live</Text>
           </View>
