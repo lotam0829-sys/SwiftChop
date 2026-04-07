@@ -95,7 +95,8 @@ export default function CheckoutScreen() {
 
   const deliveryFee = orderType === 'pickup' ? 0 : calculateDeliveryFee(estimatedKm);
   const serviceFee = config.serviceFee;
-  const total = cartTotal + deliveryFee + serviceFee;
+  const vat = Math.round((cartTotal + deliveryFee + serviceFee) * config.vatRate);
+  const total = cartTotal + deliveryFee + serviceFee + vat;
 
   // Get restaurant info for pickup address and subaccount
   const restaurant = cart.length > 0 ? restaurants.find(r => r.id === cart[0].restaurantId) : null;
@@ -348,10 +349,7 @@ export default function CheckoutScreen() {
             {cart.map((ci) => (
               <View key={ci.menuItem.id} style={styles.summaryItem}>
                 <Text style={styles.summaryItemQty}>{ci.quantity}x</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.summaryItemName} numberOfLines={1}>{ci.menuItem.name}</Text>
-                  <Text style={styles.breakdownUnitPrice}>{config.currency}{ci.menuItem.price.toLocaleString()} each</Text>
-                </View>
+                <Text style={[styles.summaryItemName, { flex: 1 }]} numberOfLines={1}>{ci.menuItem.name}</Text>
                 <Text style={styles.summaryItemPrice}>{config.currency}{(ci.menuItem.price * ci.quantity).toLocaleString()}</Text>
               </View>
             ))}
@@ -389,37 +387,21 @@ export default function CheckoutScreen() {
               <Text style={styles.summaryValue}>{config.currency}{serviceFee.toLocaleString()}</Text>
             </View>
 
-            {/* Tax row — currently ₦0 */}
+            {/* VAT */}
             <View style={styles.summaryRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="account-balance" size={14} color={theme.textMuted} />
-                <Text style={styles.summaryLabel}>Tax</Text>
+                <Text style={styles.summaryLabel}>VAT (7.5%)</Text>
               </View>
-              <Text style={[styles.summaryValue, { color: theme.success }]}>{config.currency}0</Text>
+              <Text style={styles.summaryValue}>{config.currency}{vat.toLocaleString()}</Text>
             </View>
 
             <View style={styles.divider} />
 
-            {/* Total breakdown summary */}
-            <View style={styles.breakdownTotalCard}>
-              <View style={styles.breakdownTotalRow}>
-                <Text style={styles.breakdownTotalLabel}>Food</Text>
-                <Text style={styles.breakdownTotalVal}>{config.currency}{cartTotal.toLocaleString()}</Text>
-              </View>
-              {orderType === 'delivery' ? (
-                <View style={styles.breakdownTotalRow}>
-                  <Text style={styles.breakdownTotalLabel}>+ Delivery</Text>
-                  <Text style={styles.breakdownTotalVal}>{config.currency}{deliveryFee.toLocaleString()}</Text>
-                </View>
-              ) : null}
-              <View style={styles.breakdownTotalRow}>
-                <Text style={styles.breakdownTotalLabel}>+ Service Fee</Text>
-                <Text style={styles.breakdownTotalVal}>{config.currency}{serviceFee.toLocaleString()}</Text>
-              </View>
-              <View style={[styles.breakdownTotalRow, { borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 10, marginTop: 6 }]}>
-                <Text style={styles.breakdownGrandLabel}>You Pay</Text>
-                <Text style={styles.breakdownGrandVal}>{config.currency}{total.toLocaleString()}</Text>
-              </View>
+            {/* Grand Total */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.breakdownGrandLabel}>You Pay</Text>
+              <Text style={styles.breakdownGrandVal}>{config.currency}{total.toLocaleString()}</Text>
             </View>
           </View>
 
@@ -439,14 +421,7 @@ export default function CheckoutScreen() {
             </View>
           ) : null}
 
-          {orderType === 'delivery' ? (
-            <View style={styles.feeNote}>
-              <MaterialIcons name="info-outline" size={16} color={theme.textMuted} />
-              <Text style={styles.feeNoteText}>
-                Delivery fee is estimated based on distance. Final fee may adjust slightly after a rider is assigned.
-              </Text>
-            </View>
-          ) : null}
+
         </ScrollView>
 
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>

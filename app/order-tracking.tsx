@@ -277,12 +277,14 @@ export default function OrderTrackingScreen() {
           />
         </View>
 
-        {/* Bottom actions */}
+        {/* Bottom status */}
         <View style={[styles.webViewBottom, { paddingBottom: insets.bottom + 12 }]}>
-          <Pressable onPress={handleViewGmailReceipt} style={styles.gmailReceiptBtnCompact}>
-            <MaterialIcons name="email" size={16} color="#EA4335" />
-            <Text style={styles.gmailReceiptTextCompact}>View Receipt in Gmail</Text>
-          </Pressable>
+          {order.status === 'preparing' || order.status === 'confirmed' ? (
+            <View style={styles.cookingStatusBar}>
+              <Text style={{ fontSize: 20 }}>{"\uD83C\uDF73"}</Text>
+              <Text style={styles.cookingStatusText}>Restaurant is Cooking Your Food</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     );
@@ -500,9 +502,11 @@ export default function OrderTrackingScreen() {
             <View style={styles.breakdownRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="account-balance" size={14} color={theme.textMuted} />
-                <Text style={styles.breakdownLabel}>Tax</Text>
+                <Text style={styles.breakdownLabel}>VAT (7.5%)</Text>
               </View>
-              <Text style={[styles.breakdownVal, { color: theme.success }]}>{"\u20A6"}0</Text>
+              <Text style={styles.breakdownVal}>
+                {"\u20A6"}{Math.round((order.subtotal + order.delivery_fee + order.service_fee) * 0.075).toLocaleString()}
+              </Text>
             </View>
           </View>
           <View style={styles.divider} />
@@ -512,13 +516,15 @@ export default function OrderTrackingScreen() {
           </View>
         </View>
 
-        {/* Gmail Receipt Nudge - only for delivered orders */}
-        {order.status === 'delivered' ? (
-          <Pressable onPress={handleViewGmailReceipt} style={styles.gmailReceiptBtn}>
-            <MaterialIcons name="email" size={20} color="#EA4335" />
-            <Text style={styles.gmailReceiptText}>View Receipt in Gmail</Text>
-            <MaterialIcons name="open-in-new" size={16} color={theme.textMuted} />
-          </Pressable>
+        {/* Cooking status for confirmed/preparing */}
+        {(order.status === 'confirmed' || order.status === 'preparing') ? (
+          <View style={styles.cookingStatusCard}>
+            <Text style={{ fontSize: 28 }}>{"\uD83C\uDF73"}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cookingStatusCardTitle}>Restaurant is Cooking Your Food</Text>
+              <Text style={styles.cookingStatusCardSub}>{order.restaurant_name} is preparing your order with care</Text>
+            </View>
+          </View>
         ) : null}
 
         {/* Reorder + Review for delivered orders */}
@@ -615,8 +621,8 @@ const styles = StyleSheet.create({
   webViewLoadingText: { fontSize: 14, color: theme.textMuted, fontWeight: '500' },
   // Bottom actions for WebView mode
   webViewBottom: { paddingTop: 8, paddingHorizontal: 4, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: theme.border },
-  gmailReceiptBtnCompact: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderRadius: 10, backgroundColor: '#FEF2F2' },
-  gmailReceiptTextCompact: { fontSize: 13, fontWeight: '600', color: '#DC2626' },
+  cookingStatusBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 12, borderRadius: 12, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FFEDD5' },
+  cookingStatusText: { fontSize: 14, fontWeight: '700', color: '#C2410C' },
   // Tracking loading card
   trackingLoadingCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, padding: 16, borderRadius: 16, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted, marginBottom: 16 },
   trackingLoadingIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
@@ -661,8 +667,9 @@ const styles = StyleSheet.create({
   totalValue: { fontSize: 18, fontWeight: '700', color: theme.primary },
   pickupBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#EFF6FF' },
   pickupBadgeText: { fontSize: 13, fontWeight: '600', color: '#2563EB' },
-  gmailReceiptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 14, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', marginBottom: 16 },
-  gmailReceiptText: { fontSize: 15, fontWeight: '600', color: '#DC2626' },
+  cookingStatusCard: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 16, paddingHorizontal: 18, borderRadius: 16, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FFEDD5', marginBottom: 16 },
+  cookingStatusCardTitle: { fontSize: 16, fontWeight: '700', color: '#C2410C', marginBottom: 2 },
+  cookingStatusCardSub: { fontSize: 13, color: '#9A3412', lineHeight: 18 },
   reorderPromptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 16, backgroundColor: theme.primary },
   reorderPromptText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
   reviewPromptBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 16, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted, marginBottom: 12 },

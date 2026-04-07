@@ -186,26 +186,57 @@ Deno.serve(async (req: Request) => {
     // === TRIGGER PAYOUT ON DELIVERY ===
     if (newStatus === 'delivered' && updatedOrder?.id) {
       try {
-        // Try to get distance from Shipday webhook payload, or from the order's Geoapify-computed distance
-        let distance = order?.distance || 0;
-        
-        // If no distance from webhook, try fetching from DB (may have been set by create-shipday-order via Geoapify)
-        if (!distance || distance <= 0) {
+        // Calculate distance via Geoapify for accurate rider pay
+        let distance = 0;
+
+        // First, try Geoapify routing for actual road distance
+        const geoapifyKey = Deno.env.get('GEOAPIFY_API_KEY');
+        if (geoapifyKey) {
           try {
             const { data: fullOrder } = await supabaseAdmin
               .from('orders')
-              .select('delivery_fee')
+              .select('restaurant_id, customer_id')
               .eq('id', updatedOrder.id)
               .single();
-            // Reverse-calculate approximate distance from delivery_fee: fee = 500 + ceil(km) * 150
-            if (fullOrder?.delivery_fee && fullOrder.delivery_fee > 500) {
-              distance = Math.max(0, (fullOrder.delivery_fee - 500) / 150);
-              console.log(`Estimated distance from delivery_fee: ${distance}km`);
+
+            if (fullOrder) {
+              const { data: restGeo } = await supabaseAdmin
+                .from('restaurants')
+                .select('latitude, longitude')
+                .eq('id', fullOrder.restaurant_id)
+                .single();
+              const { data: custGeo } = await supabaseAdmin
+                .from('user_profiles')
+                .select('latitude, longitude')
+                .eq('id', fullOrder.customer_id)
+                .single();
+
+              if (restGeo?.latitude && restGeo?.longitude && custGeo?.latitude && custGeo?.longitude) {
+                const waypoints = `${restGeo.latitude},${restGeo.longitude}|${custGeo.latitude},${custGeo.longitude}`;
+                const routeResp = await fetch(
+                  `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(waypoints)}&mode=drive&apiKey=${geoapifyKey}`
+                );
+                if (routeResp.ok) {
+                  const routeData = await routeResp.json();
+                  const route = routeData?.features?.[0]?.properties;
+                  if (route?.distance) {
+                    distance = parseFloat((route.distance / 1000).toFixed(2));
+                    console.log(`Geoapify payout distance: ${distance}km`);
+                  }
+                }
+              }
             }
-          } catch (e) {
-            console.log('Could not fetch order for distance estimation:', e);
+          } catch (geoErr) {
+            console.error('Geoapify distance calc in webhook failed:', geoErr);
           }
         }
+
+        // Fallback to Shipday webhook distance
+        if (distance <= 0 && order?.distance && order.distance > 0) {
+          distance = order.distance;
+          console.log(`Using Shipday distance: ${distance}km`);
+        }
+
         console.log(`Order delivered — triggering payout for order ${updatedOrder.id}, distance: ${distance}km`);
 
         const payoutResponse = await fetch(

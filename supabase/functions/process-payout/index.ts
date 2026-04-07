@@ -14,8 +14,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
  */
 
 const PLATFORM_FEE_PERCENT = 10; // 10% platform commission on food subtotal
-const RIDER_BASE_PAY = 100000; // ₦1,000 in kobo
+const RIDER_BASE_PAY = 50000; // ₦500 base in kobo
 const RIDER_PER_KM_PAY = 15000; // ₦150/km in kobo
+const RIDER_MIN_PAY = 50000; // ₦500 minimum in kobo
 
 function generateReference(prefix: string): string {
   const timestamp = Date.now().toString(36);
@@ -330,9 +331,10 @@ Deno.serve(async (req: Request) => {
           console.error('Geoapify distance calc in payout failed:', geoErr);
         }
       }
-      const riderPayAmount = RIDER_BASE_PAY + Math.round(orderDistance * RIDER_PER_KM_PAY);
+      const rawRiderPay = RIDER_BASE_PAY + Math.round(orderDistance * RIDER_PER_KM_PAY);
+      const riderPayAmount = Math.max(RIDER_MIN_PAY, rawRiderPay);
 
-      console.log(`Rider pay calculation: base=${RIDER_BASE_PAY} + ${orderDistance}km * ${RIDER_PER_KM_PAY} = ${riderPayAmount} kobo`);
+      console.log(`Rider pay calculation: base=${RIDER_BASE_PAY} + ${orderDistance}km * ${RIDER_PER_KM_PAY} = ${rawRiderPay} kobo (min: ${RIDER_MIN_PAY}), final: ${riderPayAmount} kobo`);
 
       let riderId: string | null = null;
       let riderProfile: any = null;

@@ -5,6 +5,7 @@ export const config = {
   tagline: 'Fast food delivery in Nigeria',
   currency: '₦',
   serviceFee: 200,
+  vatRate: 0.075, // Nigerian VAT at 7.5%
   minOrder: 2000,
   defaultLocation: 'Lagos, Nigeria',
   estimatedDelivery: '25-40 min',

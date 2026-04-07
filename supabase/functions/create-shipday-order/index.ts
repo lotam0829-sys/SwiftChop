@@ -288,20 +288,11 @@ Deno.serve(async (req: Request) => {
       console.log(`Updated estimated delivery: ${totalMin}-${totalMin + 10} min (route: ${bestDuration}min + prep: ${prepTime}min)`);
     }
 
-    // If we have actual distance, recalculate and update delivery fee
+    // IMPORTANT: Do NOT recalculate or change delivery_fee after checkout.
+    // The fee shown to the customer at checkout is locked and must not change.
+    // We only store the distance for informational/payout purposes.
     if (bestDistance && bestDistance > 0) {
-      const baseFee = 500;
-      const perKmRate = 150;
-      const minFee = 500;
-      const maxFee = 5000;
-      const recalcFee = Math.min(maxFee, Math.max(minFee, baseFee + Math.ceil(bestDistance) * perKmRate));
-
-      const feeDiff = recalcFee - (order.delivery_fee || 0);
-      if (feeDiff !== 0) {
-        updatePayload.delivery_fee = recalcFee;
-        updatePayload.total = (order.total || 0) + feeDiff;
-        console.log(`Delivery fee adjusted: ${order.delivery_fee} -> ${recalcFee} (distance: ${bestDistance}km, source: ${routeDistance ? 'geoapify' : 'shipday'})`);
-      }
+      console.log(`Route distance: ${bestDistance}km (source: ${routeDistance ? 'geoapify' : 'shipday'}). Delivery fee locked at: ${order.delivery_fee}`);
     }
 
     const { error: updateError } = await supabaseAdmin

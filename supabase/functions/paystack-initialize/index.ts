@@ -24,9 +24,10 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Platform fee: flat ₦200 service fee (in kobo) goes to main account
-    // The rest goes to the restaurant subaccount
-    const platformFeeKobo = 20000; // ₦200 in kobo
+    // ALL payment goes to the main SwiftChop Paystack account.
+    // Restaurant and rider payouts are processed AFTER delivery is confirmed
+    // via the process-payout edge function (triggered by shipday-webhook on delivery).
+    // This prevents premature credits to restaurants/riders before order completion.
 
     const body: Record<string, any> = {
       email,
@@ -35,16 +36,13 @@ Deno.serve(async (req: Request) => {
       callback_url: 'https://swiftchop.app/payment/callback',
       metadata: {
         order_id,
+        subaccount_code: subaccount || null, // Store for reference, not used for split
         ...metadata,
       },
     };
 
-    // Add split payment if subaccount exists
-    if (subaccount) {
-      body.subaccount = subaccount;
-      body.transaction_charge = platformFeeKobo;
-      body.bearer = 'account'; // Customer bears Paystack charges
-    }
+    // NOTE: We intentionally do NOT add subaccount split here.
+    // Payment is collected in full by SwiftChop, then disbursed post-delivery.
 
     console.log('Initializing Paystack transaction:', { email, amount, order_id, subaccount: !!subaccount });
 

@@ -330,7 +330,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const orderNumber = `SC-${Date.now().toString(36).toUpperCase()}`;
     const finalDeliveryFee = deliveryFee ?? calculateDeliveryFee();
     const serviceFee = config.serviceFee;
-    const total = cartTotal + finalDeliveryFee + serviceFee;
+    const vat = Math.round((cartTotal + finalDeliveryFee + serviceFee) * config.vatRate);
+    const total = cartTotal + finalDeliveryFee + serviceFee + vat;
 
     const { data, error } = await createOrder(
       {
