@@ -213,13 +213,24 @@ export async function deleteMenuItemById(id: string): Promise<{ error: string | 
 // ---- Orders ----
 
 export async function fetchCustomerOrders(customerId: string): Promise<{ data: DbOrder[]; error: string | null }> {
+  // First try with customer_hidden filter
   const { data, error } = await supabase
     .from('orders')
     .select('*, order_items(*)')
     .eq('customer_id', customerId)
     .eq('customer_hidden', false)
     .order('created_at', { ascending: false });
-  if (error) return { data: [], error: error.message };
+  if (error) {
+    // Fallback without the hidden filter in case column doesn't exist yet on older rows
+    console.log('Customer orders query with hidden filter failed, trying fallback:', error.message);
+    const { data: fallback, error: fbError } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
+    if (fbError) return { data: [], error: fbError.message };
+    return { data: (fallback || []).filter(o => !o.customer_hidden), error: null };
+  }
   return { data: data || [], error: null };
 }
 
@@ -230,7 +241,16 @@ export async function fetchRestaurantOrders(restaurantId: string): Promise<{ dat
     .eq('restaurant_id', restaurantId)
     .eq('restaurant_hidden', false)
     .order('created_at', { ascending: false });
-  if (error) return { data: [], error: error.message };
+  if (error) {
+    console.log('Restaurant orders query with hidden filter failed, trying fallback:', error.message);
+    const { data: fallback, error: fbError } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .eq('restaurant_id', restaurantId)
+      .order('created_at', { ascending: false });
+    if (fbError) return { data: [], error: fbError.message };
+    return { data: (fallback || []).filter(o => !o.restaurant_hidden), error: null };
+  }
   return { data: data || [], error: null };
 }
 

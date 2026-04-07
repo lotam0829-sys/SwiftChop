@@ -36,7 +36,6 @@ Deno.serve(async (req: Request) => {
       callback_url: 'https://swiftchop.app/payment/callback',
       metadata: {
         order_id,
-        subaccount_code: subaccount || null, // Store for reference, not used for split
         ...metadata,
       },
     };

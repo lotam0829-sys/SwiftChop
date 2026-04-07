@@ -33,8 +33,7 @@ export default function RiderTabLayout() {
       <Tabs.Screen
         name="deliveries"
         options={{
-          title: 'Deliveries',
-          tabBarIcon: ({ color, size }) => <MaterialIcons name="delivery-dining" size={size} color={color} />,
+          href: null,
         }}
       />
       <Tabs.Screen

@@ -21,7 +21,7 @@ export const deliveryPricing = {
   perKmRate: 150,     // ₦150 per kilometre
   minFee: 500,        // Minimum delivery fee
   maxFee: 5000,       // Maximum delivery fee cap
-  defaultEstimateKm: 5, // Default distance estimate when actual distance is unknown (km)
+  defaultEstimateKm: 3, // Default distance estimate when actual distance is unknown (km)
 };
 
 /**

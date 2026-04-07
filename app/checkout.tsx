@@ -93,7 +93,10 @@ export default function CheckoutScreen() {
     }
   }, [userLocation, cart, restaurants]);
 
-  const deliveryFee = orderType === 'pickup' ? 0 : calculateDeliveryFee(estimatedKm);
+  // Use distance-based fee when coordinates available, otherwise use restaurant's configured fee
+  const distanceBasedFee = calculateDeliveryFee(estimatedKm);
+  const restaurantDefaultFee = restaurant?.delivery_fee || 1200;
+  const deliveryFee = orderType === 'pickup' ? 0 : (estimatedKm !== null ? distanceBasedFee : restaurantDefaultFee);
   const serviceFee = config.serviceFee;
   const vat = Math.round((cartTotal + deliveryFee + serviceFee) * config.vatRate);
   const total = cartTotal + deliveryFee + serviceFee + vat;
