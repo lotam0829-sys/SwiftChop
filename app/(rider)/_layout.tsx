@@ -1,8 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Platform } from 'react-native';
-import { theme } from '../../constants/theme';
+import { Platform, View, Text } from 'react-native';
 
 export default function RiderTabLayout() {
   const insets = useSafeAreaInsets();
@@ -29,6 +28,13 @@ export default function RiderTabLayout() {
         options={{
           title: 'Earnings',
           tabBarIcon: ({ color, size }) => <MaterialIcons name="account-balance-wallet" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="deliveries"
+        options={{
+          title: 'Deliveries',
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="delivery-dining" size={size} color={color} />,
         }}
       />
       <Tabs.Screen

@@ -68,11 +68,12 @@ export default function RiderProfileScreen() {
     loadProfile();
   }, [userProfile?.id]);
 
-  // Refresh profile when screen regains focus (after editing)
+  // Refresh profile when user profile changes (e.g. after editing)
   useEffect(() => {
-    const unsubscribe = router.canGoBack;
-    // Simple approach: reload when userProfile changes
-  }, [userProfile]);
+    if (userProfile?.id) {
+      loadProfile();
+    }
+  }, [userProfile?.username, userProfile?.phone]);
 
   if (loading) {
     return (
