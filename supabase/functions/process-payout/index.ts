@@ -348,98 +348,142 @@ Deno.serve(async (req: Request) => {
         console.log(`Rider identified: ${riderProfile.username} (${riderId})`);
       }
 
-      if (riderId && riderProfile?.bank_account_number) {
-        const bankCode = await getBankCodeForProfile(riderProfile, paystackSecret);
+      if (riderId && riderProfile) {
+        const riderPayNaira = Math.round(riderPayAmount / 100);
+        let transferDone = false;
 
-        if (bankCode) {
-          const recipient = await createTransferRecipient(
-            paystackSecret,
-            riderProfile.bank_account_name || riderProfile.username || 'Rider',
-            riderProfile.bank_account_number,
-            bankCode
-          );
+        // Strategy A: Use existing Paystack subaccount (preferred — created during onboarding)
+        if (riderProfile.paystack_subaccount_code) {
+          console.log(`Rider has Paystack subaccount: ${riderProfile.paystack_subaccount_code}`);
+          // Subaccount exists — initiate direct transfer using bank details
+        }
 
-          if (recipient) {
-            const ref = generateReference('rider_pay');
-            const transfer = await initiateTransfer(
+        // Strategy B: Create transfer recipient from bank details and transfer
+        if (riderProfile.bank_account_number) {
+          const bankCode = await getBankCodeForProfile(riderProfile, paystackSecret);
+
+          if (bankCode) {
+            const recipient = await createTransferRecipient(
               paystackSecret,
-              riderPayAmount,
-              recipient.recipient_code,
-              `Delivery payment for order ${order.order_number}`,
-              ref
+              riderProfile.bank_account_name || riderProfile.username || 'Rider',
+              riderProfile.bank_account_number,
+              bankCode
             );
 
-            const riderPayNaira = Math.round(riderPayAmount / 100);
+            if (recipient) {
+              const ref = generateReference('rider_pay');
+              const transfer = await initiateTransfer(
+                paystackSecret,
+                riderPayAmount,
+                recipient.recipient_code,
+                `Delivery payment for order ${order.order_number}`,
+                ref
+              );
 
-            // Record rider payment in DB
-            const { error: riderPayError } = await supabaseAdmin
-              .from('rider_payments')
-              .insert({
-                order_id: order.id,
-                rider_id: riderId,
-                amount: riderPayNaira,
-                distance_km: orderDistance,
-                status: transfer?.status === 'success' ? 'completed' : 'pending',
-                paystack_transfer_code: transfer?.transfer_code || null,
-                paystack_reference: ref,
-              });
-
-            if (riderPayError) {
-              console.error('Failed to record rider payment:', riderPayError.message);
-            } else {
-              console.log(`Rider payment recorded: ₦${riderPayNaira}`);
-            }
-
-            // Save bank_code if not stored
-            if (!riderProfile.bank_code && bankCode) {
-              await supabaseAdmin
-                .from('user_profiles')
-                .update({ bank_code: bankCode })
-                .eq('id', riderId);
-            }
-
-            results.rider_payout = {
-              rider_id: riderId,
-              rider_name: riderProfile.username,
-              amount_kobo: riderPayAmount,
-              amount_naira: riderPayNaira,
-              distance_km: orderDistance,
-              transfer_code: transfer?.transfer_code || null,
-              status: transfer?.status || 'failed',
-              reference: ref,
-            };
-
-            // Send push notification to rider
-            if (riderProfile.push_token) {
-              try {
-                await fetch('https://exp.host/--/api/v2/push/send', {
-                  method: 'POST',
-                  headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    to: riderProfile.push_token,
-                    sound: 'default',
-                    title: 'Payment Received!',
-                    body: `You earned \u20A6${riderPayNaira.toLocaleString()} for delivering order ${order.order_number}.`,
-                    data: { type: 'rider_payment', orderId: order.id },
-                    priority: 'high',
-                    channelId: 'order-updates',
-                  }),
+              // Record rider payment in DB
+              const { error: riderPayError } = await supabaseAdmin
+                .from('rider_payments')
+                .insert({
+                  order_id: order.id,
+                  rider_id: riderId,
+                  amount: riderPayNaira,
+                  distance_km: orderDistance,
+                  status: transfer?.status === 'success' ? 'completed' : 'pending',
+                  paystack_transfer_code: transfer?.transfer_code || null,
+                  paystack_reference: ref,
                 });
-                console.log('Rider payment notification sent');
-              } catch (pushErr) {
-                console.error('Rider push notification failed:', pushErr);
-              }
-            }
 
-            console.log('Rider payout result:', JSON.stringify(results.rider_payout));
+              if (riderPayError) {
+                console.error('Failed to record rider payment:', riderPayError.message);
+              } else {
+                console.log(`Rider payment recorded: ₦${riderPayNaira}`);
+              }
+
+              transferDone = true;
+
+              // Save bank_code if not stored
+              if (!riderProfile.bank_code && bankCode) {
+                await supabaseAdmin
+                  .from('user_profiles')
+                  .update({ bank_code: bankCode })
+                  .eq('id', riderId);
+              }
+
+              // Create Paystack subaccount if rider doesn't have one yet
+              if (!riderProfile.paystack_subaccount_code) {
+                try {
+                  const subResp = await fetch('https://api.paystack.co/subaccount', {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${paystackSecret}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      business_name: riderProfile.bank_account_name || riderProfile.username || 'Rider',
+                      bank_code: bankCode,
+                      account_number: riderProfile.bank_account_number,
+                      percentage_charge: 0,
+                    }),
+                  });
+                  const subResult = await subResp.json();
+                  if (subResult.status && subResult.data?.subaccount_code) {
+                    await supabaseAdmin
+                      .from('user_profiles')
+                      .update({ paystack_subaccount_code: subResult.data.subaccount_code })
+                      .eq('id', riderId);
+                    console.log(`Created missing Paystack subaccount for rider: ${subResult.data.subaccount_code}`);
+                  }
+                } catch (subErr) {
+                  console.error('Failed to create rider subaccount retroactively:', subErr);
+                }
+              }
+
+              results.rider_payout = {
+                rider_id: riderId,
+                rider_name: riderProfile.username,
+                amount_kobo: riderPayAmount,
+                amount_naira: riderPayNaira,
+                distance_km: orderDistance,
+                transfer_code: transfer?.transfer_code || null,
+                status: transfer?.status || 'failed',
+                reference: ref,
+              };
+
+              // Send push notification to rider
+              if (riderProfile.push_token) {
+                try {
+                  await fetch('https://exp.host/--/api/v2/push/send', {
+                    method: 'POST',
+                    headers: {
+                      'Accept': 'application/json',
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      to: riderProfile.push_token,
+                      sound: 'default',
+                      title: 'Payment Received!',
+                      body: `You earned \u20A6${riderPayNaira.toLocaleString()} for delivering order ${order.order_number}.`,
+                      data: { type: 'rider_payment', orderId: order.id },
+                      priority: 'high',
+                      channelId: 'order-updates',
+                    }),
+                  });
+                  console.log('Rider payment notification sent');
+                } catch (pushErr) {
+                  console.error('Rider push notification failed:', pushErr);
+                }
+              }
+
+              console.log('Rider payout result:', JSON.stringify(results.rider_payout));
+            }
+          } else {
+            console.error(`Could not resolve bank code for rider ${riderId} (bank_name: ${riderProfile.bank_name})`);
           }
-        } else {
-          console.error(`Could not resolve bank code for rider ${riderId} (bank_name: ${riderProfile.bank_name})`);
-          // Still record a pending payment even without transfer
-          const riderPayNaira = Math.round(riderPayAmount / 100);
+        }
+
+        // If transfer was not done for any reason, still record a pending payment
+        if (!transferDone) {
+          console.log(`Recording pending rider payment for rider ${riderId}`);
           await supabaseAdmin
             .from('rider_payments')
             .insert({
@@ -449,21 +493,8 @@ Deno.serve(async (req: Request) => {
               distance_km: orderDistance,
               status: 'pending',
             });
-          console.log(`Recorded pending rider payment: ₦${riderPayNaira} (bank code resolution failed)`);
+          console.log(`Recorded pending rider payment: ₦${riderPayNaira}`);
         }
-      } else if (riderId) {
-        // Rider found but no bank details
-        console.log(`Rider ${riderId} has no bank details, recording pending payment`);
-        const riderPayNaira = Math.round(riderPayAmount / 100);
-        await supabaseAdmin
-          .from('rider_payments')
-          .insert({
-            order_id: order.id,
-            rider_id: riderId,
-            amount: riderPayNaira,
-            distance_km: orderDistance,
-            status: 'pending',
-          });
       } else {
         console.log('No rider could be identified for this order, skipping rider payout');
       }

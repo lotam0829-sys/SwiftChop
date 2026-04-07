@@ -15,7 +15,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { theme } from '../constants/theme';
 import { useAuth, useAlert } from '@/template';
 import { useApp } from '../contexts/AppContext';
-import { updateUserProfile, createRestaurantForOwner, verifyBankAccount } from '../services/supabaseData';
+import { updateUserProfile, createRestaurantForOwner, verifyBankAccount, createPaystackSubaccount } from '../services/supabaseData';
 import { nigerianBanks, NigerianBank } from '../constants/nigerianBanks';
 import { getSupabaseClient } from '@/template';
 import PrimaryButton from '../components/ui/PrimaryButton';
@@ -476,6 +476,23 @@ export default function OnboardingScreen() {
         bank_account_number: bankAccountNumber.trim(),
         bank_account_name: bankAccountName.trim(),
       } as any);
+
+      // Create Paystack subaccount for rider so they can receive payouts
+      if (selectedBankCode && bankAccountNumber.trim().length === 10) {
+        console.log('Creating Paystack subaccount for rider...');
+        const { data: subData, error: subError } = await createPaystackSubaccount(
+          user.id,
+          riderName.trim() || bankAccountName.trim() || 'Rider',
+          selectedBankCode,
+          bankAccountNumber.trim()
+        );
+        if (subError) {
+          console.log('Paystack subaccount creation note:', subError);
+          // Non-blocking: rider can still complete onboarding, subaccount can be created later
+        } else if (subData?.subaccount_code) {
+          console.log('Rider Paystack subaccount created:', subData.subaccount_code);
+        }
+      }
 
       await refreshProfile();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

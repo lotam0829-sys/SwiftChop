@@ -7,6 +7,7 @@ import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getSupabaseClient } from '@/template';
 import { formatNigerianDate } from '../../constants/timeUtils';
+import { createPaystackSubaccount } from '../../services/supabaseData';
 
 interface RiderPayment {
   id: string;
@@ -24,6 +25,8 @@ export default function RiderEarningsScreen() {
   const [payments, setPayments] = useState<RiderPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [subaccountStatus, setSubaccountStatus] = useState<'active' | 'missing' | 'loading'>('loading');
+  const [creatingSubaccount, setCreatingSubaccount] = useState(false);
 
   const fetchPayments = useCallback(async () => {
     if (!userProfile?.id) return;
@@ -36,8 +39,17 @@ export default function RiderEarningsScreen() {
         .order('created_at', { ascending: false })
         .limit(50);
       if (!error && data) setPayments(data);
+
+      // Check subaccount status
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('paystack_subaccount_code')
+        .eq('id', userProfile.id)
+        .single();
+      setSubaccountStatus(profile?.paystack_subaccount_code ? 'active' : 'missing');
     } catch (err) {
       console.log('Fetch payments error:', err);
+      setSubaccountStatus('missing');
     }
   }, [userProfile?.id]);
 
@@ -162,6 +174,65 @@ export default function RiderEarningsScreen() {
           </View>
         </LinearGradient>
 
+        {/* Paystack Subaccount Warning */}
+        {subaccountStatus === 'missing' ? (
+          <Pressable
+            onPress={async () => {
+              if (!userProfile?.id) return;
+              setCreatingSubaccount(true);
+              try {
+                const supabase = getSupabaseClient();
+                const { data: profile } = await supabase
+                  .from('user_profiles')
+                  .select('bank_code, bank_account_number, bank_account_name, username')
+                  .eq('id', userProfile.id)
+                  .single();
+                if (profile?.bank_code && profile?.bank_account_number) {
+                  const { data: subData, error: subError } = await createPaystackSubaccount(
+                    userProfile.id,
+                    profile.bank_account_name || profile.username || 'Rider',
+                    profile.bank_code,
+                    profile.bank_account_number
+                  );
+                  if (subError) {
+                    console.log('Subaccount creation error:', subError);
+                  } else if (subData?.subaccount_code) {
+                    setSubaccountStatus('active');
+                  }
+                } else {
+                  console.log('Missing bank details for subaccount creation');
+                }
+              } catch (err) {
+                console.log('Subaccount setup error:', err);
+              } finally {
+                setCreatingSubaccount(false);
+              }
+            }}
+            disabled={creatingSubaccount}
+            style={styles.subaccountWarning}
+          >
+            <View style={styles.subaccountWarningIcon}>
+              <MaterialIcons name="warning" size={22} color="#D97706" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.subaccountWarningTitle}>Payment Setup Incomplete</Text>
+              <Text style={styles.subaccountWarningSub}>
+                {creatingSubaccount ? 'Setting up your payment account...' : 'Tap to activate your Paystack payout account so you can receive earnings.'}
+              </Text>
+            </View>
+            {creatingSubaccount ? (
+              <ActivityIndicator size="small" color="#D97706" />
+            ) : (
+              <MaterialIcons name="chevron-right" size={22} color="#D97706" />
+            )}
+          </Pressable>
+        ) : subaccountStatus === 'active' ? (
+          <View style={styles.subaccountActive}>
+            <MaterialIcons name="verified" size={18} color="#10B981" />
+            <Text style={styles.subaccountActiveText}>Paystack payout account active</Text>
+          </View>
+        ) : null}
+
         {/* Start Earning CTA */}
         <Pressable
           onPress={() => {
@@ -266,4 +337,10 @@ const styles = StyleSheet.create({
   paymentAmount: { fontSize: 16, fontWeight: '700' },
   statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginTop: 4 },
   statusPillText: { fontSize: 10, fontWeight: '700' },
+  subaccountWarning: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 12, padding: 16, borderRadius: 16, backgroundColor: '#FEF3C7', borderWidth: 1.5, borderColor: '#FDE68A' },
+  subaccountWarningIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#FDE68A', alignItems: 'center', justifyContent: 'center' },
+  subaccountWarningTitle: { fontSize: 15, fontWeight: '700', color: '#92400E', marginBottom: 2 },
+  subaccountWarningSub: { fontSize: 12, color: '#A16207', lineHeight: 17 },
+  subaccountActive: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginHorizontal: 16, marginBottom: 12, paddingVertical: 10, borderRadius: 12, backgroundColor: 'rgba(16,185,129,0.1)' },
+  subaccountActiveText: { fontSize: 13, fontWeight: '600', color: '#10B981' },
 });
