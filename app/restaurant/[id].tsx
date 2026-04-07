@@ -28,6 +28,7 @@ export default function RestaurantDetailScreen() {
   const [menuItems, setMenuItems] = useState<DbMenuItem[]>([]);
   const [reviews, setReviews] = useState<DbReview[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showReviews, setShowReviews] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -72,11 +73,16 @@ export default function RestaurantDetailScreen() {
     visitedRef.current = true;
     cancelRestaurantReminder();
     setLoading(true);
+    setLoadError(null);
     Promise.all([
       fetchRestaurantById(id),
       fetchMenuItems(id),
       fetchRestaurantReviews(id),
     ]).then(([restResult, menuResult, reviewsResult]) => {
+      if (restResult.error) {
+        console.log('Restaurant fetch error:', restResult.error);
+        setLoadError(restResult.error);
+      }
       setRestaurant(restResult.data);
       setMenuItems(menuResult.data);
       setReviews(reviewsResult.data);
@@ -260,7 +266,19 @@ export default function RestaurantDetailScreen() {
   }
 
   if (!restaurant) {
-    return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text>Restaurant not found</Text></View>;
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <MaterialIcons name="storefront" size={48} color={theme.textMuted} />
+        <Text style={{ fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginTop: 12 }}>Restaurant not found</Text>
+        {loadError ? <Text style={{ fontSize: 13, color: theme.textMuted, marginTop: 8, textAlign: 'center' }}>{loadError}</Text> : null}
+        <Pressable onPress={() => { setLoading(true); setLoadError(null); fetchRestaurantById(id!).then(r => { setRestaurant(r.data); if (r.error) setLoadError(r.error); setLoading(false); }); }} style={{ marginTop: 16, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.primary }}>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFF' }}>Retry</Text>
+        </Pressable>
+        <Pressable onPress={() => router.back()} style={{ marginTop: 12 }}>
+          <Text style={{ fontSize: 14, color: theme.primary, fontWeight: '600' }}>Go Back</Text>
+        </Pressable>
+      </View>
+    );
   }
 
   return (
