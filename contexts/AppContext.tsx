@@ -13,7 +13,8 @@ import {
   insertMenuItem, updateMenuItem, deleteMenuItemById,
   dispatchToShipday, fetchOrderById, savePushToken,
   fetchFavorites, addFavorite as addFavoriteDb, removeFavorite as removeFavoriteDb,
-  deleteOrdersByIds,
+  hideOrdersForCustomer,
+  hideOrdersForRestaurant,
 } from '../services/supabaseData';
 import { notifyShipdayReadyForPickup } from '../services/shipdayReadyPickup';
 import { foodCategories } from '../services/mockData';
@@ -68,7 +69,7 @@ interface AppContextType {
 
   updateProfile: (updates: Partial<DbUserProfile>) => Promise<void>;
   reorder: (order: DbOrder) => Promise<boolean>;
-  deleteOrders: (orderIds: string[]) => Promise<boolean>;
+  deleteOrders: (orderIds: string[], role?: 'customer' | 'restaurant') => Promise<boolean>;
   cancelOrder: (orderId: string) => Promise<boolean>;
 
   userLocation: { latitude: number; longitude: number } | null;
@@ -625,13 +626,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
-  const deleteOrders = async (orderIds: string[]): Promise<boolean> => {
+  const deleteOrders = async (orderIds: string[], role?: 'customer' | 'restaurant'): Promise<boolean> => {
     if (orderIds.length === 0) return false;
-    const { error } = await deleteOrdersByIds(orderIds);
+    // Soft-delete: hide orders for the specific user role, never destroy the record
+    const userRole = role || userProfile?.role || 'customer';
+    const { error } = userRole === 'restaurant'
+      ? await hideOrdersForRestaurant(orderIds)
+      : await hideOrdersForCustomer(orderIds);
     if (error) {
-      Alert.alert('Delete Error', error);
+      Alert.alert('Error', 'Failed to archive orders. Please try again.');
       return false;
     }
+    // Remove from local state so they disappear from the UI
     setCustomerOrders(prev => prev.filter(o => !orderIds.includes(o.id)));
     setRestaurantOrders(prev => prev.filter(o => !orderIds.includes(o.id)));
     return true;

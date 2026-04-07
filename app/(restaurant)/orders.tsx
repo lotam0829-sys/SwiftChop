@@ -1,10 +1,12 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, TextInput, ActivityIndicator } from 'react-native';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Pressable, TextInput, ActivityIndicator, AppState } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { DbOrder } from '../../services/supabaseData';
@@ -29,9 +31,30 @@ const statusConfig: Record<string, { color: string; bg: string; label: string; n
   cancelled: { color: '#EF4444', bg: '#FEE2E2', label: 'Cancelled' },
 };
 
+// Generate a short alert tone programmatically using expo-av
+async function playNewOrderAlert() {
+  try {
+    // Use system notification sound via a short beep pattern
+    const { sound } = await Audio.Sound.createAsync(
+      { uri: 'https://cdn.freesound.org/previews/536/536420_4921277-lq.mp3' },
+      { shouldPlay: true, volume: 1.0 }
+    );
+    sound.setOnPlaybackStatusUpdate((status) => {
+      if ('didJustFinish' in status && status.didJustFinish) {
+        sound.unloadAsync();
+      }
+    });
+  } catch (err) {
+    console.log('Alert sound error:', err);
+    // Fallback: heavy haptic if sound fails
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  }
+}
+
 export default function RestaurantOrdersScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { restaurantOrders, updateOrderStatus, refreshRestaurantData, deleteOrders } = useApp();
   const { showAlert } = useAlert();
   const [activeTab, setActiveTab] = useState('all');
@@ -41,6 +64,81 @@ export default function RestaurantOrdersScreen() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+
+  // === 15-SECOND AUTO-REFRESH POLLING ===
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevPendingCountRef = useRef<number>(0);
+  const isInitialLoadRef = useRef(true);
+
+  const pendingCount = useMemo(
+    () => restaurantOrders.filter(o => o.status === 'pending').length,
+    [restaurantOrders]
+  );
+
+  // Track pending count changes and play alert for NEW pending orders
+  useEffect(() => {
+    if (isInitialLoadRef.current) {
+      // First load — set baseline, no alert
+      prevPendingCountRef.current = pendingCount;
+      isInitialLoadRef.current = false;
+      return;
+    }
+
+    if (pendingCount > prevPendingCountRef.current) {
+      // New pending order(s) arrived
+      playNewOrderAlert();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
+    prevPendingCountRef.current = pendingCount;
+  }, [pendingCount]);
+
+  // Start/stop polling based on screen focus and app state
+  useEffect(() => {
+    const startPolling = () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      pollingRef.current = setInterval(() => {
+        refreshRestaurantData();
+      }, 15000);
+    };
+
+    const stopPolling = () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+
+    if (isFocused) {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+
+    // Also respond to app going to background/foreground
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && isFocused) {
+        refreshRestaurantData();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    });
+
+    return () => {
+      stopPolling();
+      subscription.remove();
+    };
+  }, [isFocused, refreshRestaurantData]);
+
+  // Set audio mode for playback
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+    }).catch(() => {});
+  }, []);
 
   const filtered = useMemo(() => {
     let orders = restaurantOrders;
@@ -78,6 +176,24 @@ export default function RestaurantOrdersScreen() {
   const todayRevenue = useMemo(() => {
     return todayOrders.filter(o => o.status === 'delivered').reduce((sum, o) => sum + o.total, 0);
   }, [todayOrders]);
+
+  const handleDeleteOrders = useCallback(async () => {
+    showAlert('Archive Orders?', `Archive ${selectedIds.size} selected order(s)? They will be hidden from your list but financial records are preserved.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Archive', style: 'destructive', onPress: async () => {
+          setDeleting(true);
+          const success = await deleteOrders(Array.from(selectedIds), 'restaurant');
+          setDeleting(false);
+          if (success) {
+            setSelectedIds(new Set());
+            setSelectMode(false);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+        }
+      },
+    ]);
+  }, [selectedIds, deleteOrders, showAlert]);
 
   const renderOrder = ({ item }: { item: DbOrder }) => {
     const cfg = statusConfig[item.status] || statusConfig.pending;
@@ -169,23 +285,11 @@ export default function RestaurantOrdersScreen() {
               </Pressable>
               {selectedIds.size > 0 ? (
                 <Pressable
-                  onPress={() => {
-                    showAlert('Delete Orders?', `Delete ${selectedIds.size} selected order(s)? This cannot be undone.`, [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Delete', style: 'destructive', onPress: async () => {
-                          setDeleting(true);
-                          const success = await deleteOrders(Array.from(selectedIds));
-                          setDeleting(false);
-                          if (success) { setSelectedIds(new Set()); setSelectMode(false); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
-                        }
-                      },
-                    ]);
-                  }}
+                  onPress={handleDeleteOrders}
                   disabled={deleting}
                   style={[styles.searchToggle, { backgroundColor: 'rgba(239,68,68,0.2)' }]}
                 >
-                  {deleting ? <ActivityIndicator size="small" color="#EF4444" /> : <MaterialIcons name="delete" size={22} color="#EF4444" />}
+                  {deleting ? <ActivityIndicator size="small" color="#EF4444" /> : <MaterialIcons name="archive" size={22} color="#EF4444" />}
                 </Pressable>
               ) : null}
             </>
@@ -201,6 +305,20 @@ export default function RestaurantOrdersScreen() {
           )}
         </View>
       </View>
+
+      {/* New order alert banner */}
+      {pendingCount > 0 ? (
+        <Pressable
+          onPress={() => { Haptics.selectionAsync(); setActiveTab('pending'); }}
+          style={styles.newOrderBanner}
+        >
+          <View style={styles.newOrderPulse}>
+            <MaterialIcons name="notifications-active" size={18} color="#FFF" />
+          </View>
+          <Text style={styles.newOrderBannerText}>{pendingCount} new order{pendingCount > 1 ? 's' : ''} waiting</Text>
+          <MaterialIcons name="chevron-right" size={18} color="#F59E0B" />
+        </Pressable>
+      ) : null}
 
       {selectMode ? (
         <View style={{ backgroundColor: 'rgba(255,107,0,0.1)', paddingVertical: 10, paddingHorizontal: 16, marginHorizontal: 16, borderRadius: 12, marginBottom: 8 }}>
@@ -280,6 +398,10 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: '700', color: '#FFF' },
   count: { fontSize: 12, color: '#999', marginTop: 4 },
   searchToggle: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center' },
+  // New order alert banner
+  newOrderBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16, marginBottom: 10, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 14, backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.25)' },
+  newOrderPulse: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F59E0B', alignItems: 'center', justifyContent: 'center' },
+  newOrderBannerText: { flex: 1, fontSize: 14, fontWeight: '700', color: '#F59E0B' },
   searchBar: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, height: 46, borderRadius: 12, backgroundColor: '#1A1A1A', paddingHorizontal: 14, gap: 10, marginBottom: 12, borderWidth: 1, borderColor: '#2A2A2A' },
   searchInput: { flex: 1, fontSize: 14, color: '#FFF' },
   tabsContainer: { flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 14, gap: 6, flexWrap: 'wrap' },
@@ -305,11 +427,6 @@ const styles = StyleSheet.create({
   addressText: { fontSize: 13, color: '#999', flex: 1 },
   pickupTag: { backgroundColor: '#DBEAFE', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   pickupTagText: { fontSize: 10, fontWeight: '700', color: '#2563EB' },
-  actionsRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  rejectBtn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: '#EF4444' },
-  rejectText: { fontSize: 14, fontWeight: '600', color: '#EF4444' },
-  acceptBtn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.primary, alignItems: 'center' },
-  acceptText: { fontSize: 14, fontWeight: '600', color: '#FFF' },
   emptyState: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: { fontSize: 16, fontWeight: '600', color: '#FFF', marginTop: 12 },
   emptySubtitle: { fontSize: 14, color: '#999', marginTop: 4, textAlign: 'center' },

@@ -63,6 +63,9 @@ export interface DbOrder {
   shipday_carrier_name?: string | null;
   shipday_carrier_phone?: string | null;
   shipday_eta?: string | null;
+  // Soft-delete visibility
+  customer_hidden?: boolean;
+  restaurant_hidden?: boolean;
 }
 
 export interface DbOrderItem {
@@ -214,6 +217,7 @@ export async function fetchCustomerOrders(customerId: string): Promise<{ data: D
     .from('orders')
     .select('*, order_items(*)')
     .eq('customer_id', customerId)
+    .eq('customer_hidden', false)
     .order('created_at', { ascending: false });
   if (error) return { data: [], error: error.message };
   return { data: data || [], error: null };
@@ -224,6 +228,7 @@ export async function fetchRestaurantOrders(restaurantId: string): Promise<{ dat
     .from('orders')
     .select('*, order_items(*)')
     .eq('restaurant_id', restaurantId)
+    .eq('restaurant_hidden', false)
     .order('created_at', { ascending: false });
   if (error) return { data: [], error: error.message };
   return { data: data || [], error: null };
@@ -432,19 +437,26 @@ export async function initializePaystackPayment(email: string, amount: number, o
   return { data, error: null };
 }
 
-// ---- Delete Orders ----
+// ---- Soft-Delete Orders (hide, never destroy) ----
 
-export async function deleteOrdersByIds(orderIds: string[]): Promise<{ error: string | null }> {
+/**
+ * Hide orders for a specific user role. The core order record and all
+ * associated financial data (payments, earnings) remain permanently intact.
+ */
+export async function hideOrdersForCustomer(orderIds: string[]): Promise<{ error: string | null }> {
   if (orderIds.length === 0) return { error: null };
-  // Delete order_items first (cascade should handle it but be explicit)
-  const { error: itemsError } = await supabase
-    .from('order_items')
-    .delete()
-    .in('order_id', orderIds);
-  if (itemsError) return { error: itemsError.message };
   const { error } = await supabase
     .from('orders')
-    .delete()
+    .update({ customer_hidden: true })
+    .in('id', orderIds);
+  return { error: error?.message || null };
+}
+
+export async function hideOrdersForRestaurant(orderIds: string[]): Promise<{ error: string | null }> {
+  if (orderIds.length === 0) return { error: null };
+  const { error } = await supabase
+    .from('orders')
+    .update({ restaurant_hidden: true })
     .in('id', orderIds);
   return { error: error?.message || null };
 }

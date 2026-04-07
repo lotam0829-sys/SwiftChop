@@ -244,12 +244,12 @@ export default function OrdersScreen() {
               {selectedIds.size > 0 ? (
                 <Pressable
                   onPress={() => {
-                    showAlert('Delete Orders?', `Delete ${selectedIds.size} selected order(s)? This cannot be undone.`, [
+                    showAlert('Archive Orders?', `Archive ${selectedIds.size} selected order(s)? They will be hidden from your list but all records are preserved.`, [
                       { text: 'Cancel', style: 'cancel' },
                       {
-                        text: 'Delete', style: 'destructive', onPress: async () => {
+                        text: 'Archive', style: 'destructive', onPress: async () => {
                           setDeleting(true);
-                          const success = await deleteOrders(Array.from(selectedIds));
+                          const success = await deleteOrders(Array.from(selectedIds), 'customer');
                           setDeleting(false);
                           if (success) {
                             setSelectedIds(new Set());
@@ -263,7 +263,7 @@ export default function OrdersScreen() {
                   disabled={deleting}
                   style={[styles.searchToggle, { backgroundColor: '#FEE2E2' }]}
                 >
-                  {deleting ? <ActivityIndicator size="small" color="#EF4444" /> : <MaterialIcons name="delete" size={22} color="#EF4444" />}
+                  {deleting ? <ActivityIndicator size="small" color="#EF4444" /> : <MaterialIcons name="archive" size={22} color="#EF4444" />}
                 </Pressable>
               ) : null}
             </>
