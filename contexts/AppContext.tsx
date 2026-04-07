@@ -69,6 +69,7 @@ interface AppContextType {
   updateProfile: (updates: Partial<DbUserProfile>) => Promise<void>;
   reorder: (order: DbOrder) => Promise<boolean>;
   deleteOrders: (orderIds: string[]) => Promise<boolean>;
+  cancelOrder: (orderId: string) => Promise<boolean>;
 
   userLocation: { latitude: number; longitude: number } | null;
   requestLocation: () => Promise<void>;
@@ -402,6 +403,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLoadingRestaurantData(false);
   };
 
+  const cancelOrder = async (orderId: string): Promise<boolean> => {
+    if (!user?.id) return false;
+    const order = customerOrders.find(o => o.id === orderId);
+    if (!order || order.status !== 'pending') return false;
+    const { error } = await updateOrderStatusDb(orderId, 'cancelled');
+    if (error) {
+      Alert.alert('Error', 'Failed to cancel order. Please try again.');
+      return false;
+    }
+    setCustomerOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'cancelled' } : o));
+    return true;
+  };
+
   const updateOrderStatus = async (orderId: string, status: string) => {
     await updateOrderStatusDb(orderId, status);
     setRestaurantOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
@@ -632,7 +646,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ownerRestaurant, restaurantOrders, restaurantMenuItems, loadingRestaurantData,
       refreshRestaurantData, updateOrderStatus,
       addMenuItem, deleteMenuItemAction, toggleMenuItemAvailability,
-      updateProfile, reorder, deleteOrders,
+      updateProfile, reorder, deleteOrders, cancelOrder,
       userLocation, requestLocation,
       pushToken,
       favoriteIds, isFavorite, toggleFavorite, favoriteRestaurants, loadingFavorites,

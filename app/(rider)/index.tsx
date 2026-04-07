@@ -170,7 +170,7 @@ export default function RiderEarningsScreen() {
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.paymentTitle}>Delivery Payment</Text>
-        <Text style={styles.paymentDate}>{formatNigerianDate(item.created_at)}</Text>
+        <Text style={styles.paymentDate}>{formatNigerianDate(new Date(item.created_at))}</Text>
         {item.distance_km ? (
           <Text style={styles.paymentDistance}>{item.distance_km} km</Text>
         ) : null}

@@ -29,7 +29,7 @@ export default function OrderTrackingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
-  const { customerOrders, refreshOrder, reorder } = useApp();
+  const { customerOrders, refreshOrder, reorder, cancelOrder } = useApp();
 
   const order = customerOrders.find(o => o.id === orderId) || customerOrders[0];
   const isPickup = order?.delivery_address?.startsWith('PICKUP:');
@@ -556,6 +556,26 @@ export default function OrderTrackingScreen() {
           </View>
         ) : null}
 
+        {/* Cancel button for pending orders */}
+        {order.status === 'pending' ? (
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              if (cancelOrder) {
+                cancelOrder(order.id).then((success) => {
+                  if (success) {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  }
+                });
+              }
+            }}
+            style={styles.cancelOrderBtn}
+          >
+            <MaterialIcons name="cancel" size={20} color="#EF4444" />
+            <Text style={styles.cancelOrderBtnText}>Cancel This Order</Text>
+          </Pressable>
+        ) : null}
+
         <Pressable onPress={() => router.replace('/(tabs)')} style={styles.homeBtn}>
           <Text style={styles.homeBtnText}>Back to Home</Text>
         </Pressable>
@@ -649,6 +669,8 @@ const styles = StyleSheet.create({
   reviewPromptText: { fontSize: 15, fontWeight: '700', color: theme.primary },
   homeBtn: { backgroundColor: theme.backgroundDark, borderRadius: 16, paddingVertical: 18, alignItems: 'center', marginTop: 4 },
   homeBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  cancelOrderBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, borderRadius: 16, borderWidth: 1.5, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2', marginBottom: 10 },
+  cancelOrderBtnText: { fontSize: 15, fontWeight: '700', color: '#EF4444' },
   // Searching for Dispatch Rider
   riderSearchCard: { alignItems: 'center', paddingVertical: 32, paddingHorizontal: 24, borderRadius: 20, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FFEDD5', marginBottom: 20 },
   radarContainer: { width: 140, height: 140, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },

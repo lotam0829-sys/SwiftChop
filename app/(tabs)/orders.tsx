@@ -32,7 +32,7 @@ const filterTabs = [
 export default function OrdersScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { customerOrders, loadingOrders, refreshCustomerOrders, reorder, deleteOrders } = useApp();
+  const { customerOrders, loadingOrders, refreshCustomerOrders, reorder, deleteOrders, cancelOrder } = useApp();
   const { showAlert } = useAlert();
 
   const [activeFilter, setActiveFilter] = useState('all');
@@ -190,8 +190,35 @@ export default function OrdersScreen() {
           </View>
         ) : null}
 
-        {/* Track button for active orders */}
-        {isActive ? (
+        {/* Cancel button for pending orders */}
+        {item.status === 'pending' ? (
+          <View style={{ gap: 8, marginTop: 12 }}>
+            <Pressable onPress={() => handleOrderPress(item)} style={styles.trackHint}>
+              <MaterialIcons name="gps-fixed" size={14} color={theme.info} />
+              <Text style={styles.trackHintText}>Tap to track your order</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                showAlert('Cancel Order?', 'Are you sure you want to cancel this pending order?', [
+                  { text: 'Keep Order', style: 'cancel' },
+                  {
+                    text: 'Cancel Order', style: 'destructive', onPress: async () => {
+                      const success = await cancelOrder(item.id);
+                      if (success) {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                      }
+                    }
+                  },
+                ]);
+              }}
+              style={styles.cancelBtn}
+            >
+              <MaterialIcons name="cancel" size={16} color="#EF4444" />
+              <Text style={styles.cancelBtnText}>Cancel Order</Text>
+            </Pressable>
+          </View>
+        ) : isActive ? (
           <View style={styles.trackHint}>
             <MaterialIcons name="gps-fixed" size={14} color={theme.info} />
             <Text style={styles.trackHintText}>Tap to track your order</Text>
@@ -392,4 +419,6 @@ const styles = StyleSheet.create({
   clearFilterText: { fontSize: 14, fontWeight: '600', color: theme.primary },
   selectBanner: { backgroundColor: theme.primaryFaint, paddingVertical: 10, paddingHorizontal: 16, marginHorizontal: 16, borderRadius: 12, marginBottom: 12 },
   selectBannerText: { fontSize: 13, fontWeight: '600', color: theme.primary, textAlign: 'center' },
+  cancelBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
+  cancelBtnText: { fontSize: 13, fontWeight: '600', color: '#EF4444' },
 });
