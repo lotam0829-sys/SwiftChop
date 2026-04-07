@@ -449,6 +449,40 @@ export default function OrderTrackingScreen() {
             <Text key={idx} style={styles.itemText}>{item.quantity}x {item.name} — {"\u20A6"}{(item.price * item.quantity).toLocaleString()}</Text>
           ))}
           <View style={styles.divider} />
+          {/* Detailed price breakdown */}
+          <View style={styles.breakdownSection}>
+            <View style={styles.breakdownRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialIcons name="restaurant-menu" size={14} color={theme.textMuted} />
+                <Text style={styles.breakdownLabel}>Food Subtotal</Text>
+              </View>
+              <Text style={styles.breakdownVal}>{"\u20A6"}{order.subtotal.toLocaleString()}</Text>
+            </View>
+            <View style={styles.breakdownRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialIcons name="delivery-dining" size={14} color={theme.textMuted} />
+                <Text style={styles.breakdownLabel}>Delivery Fee</Text>
+              </View>
+              <Text style={styles.breakdownVal}>
+                {isPickup ? 'FREE' : `\u20A6${order.delivery_fee.toLocaleString()}`}
+              </Text>
+            </View>
+            <View style={styles.breakdownRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialIcons name="apps" size={14} color={theme.textMuted} />
+                <Text style={styles.breakdownLabel}>App Service Fee</Text>
+              </View>
+              <Text style={styles.breakdownVal}>{"\u20A6"}{order.service_fee.toLocaleString()}</Text>
+            </View>
+            <View style={styles.breakdownRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialIcons name="account-balance" size={14} color={theme.textMuted} />
+                <Text style={styles.breakdownLabel}>Tax</Text>
+              </View>
+              <Text style={[styles.breakdownVal, { color: theme.success }]}>{"\u20A6"}0</Text>
+            </View>
+          </View>
+          <View style={styles.divider} />
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total paid</Text>
             <Text style={styles.totalValue}>{"\u20A6"}{order.total.toLocaleString()}</Text>
@@ -575,6 +609,10 @@ const styles = StyleSheet.create({
   infoText: { fontSize: 14, color: theme.textSecondary, flex: 1 },
   divider: { height: 1, backgroundColor: theme.border, marginVertical: 12 },
   itemText: { fontSize: 14, color: theme.textSecondary, marginBottom: 6 },
+  breakdownSection: { gap: 8 },
+  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  breakdownLabel: { fontSize: 13, color: theme.textSecondary },
+  breakdownVal: { fontSize: 13, fontWeight: '600', color: theme.textPrimary },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between' },
   totalLabel: { fontSize: 15, fontWeight: '600', color: theme.textPrimary },
   totalValue: { fontSize: 18, fontWeight: '700', color: theme.primary },

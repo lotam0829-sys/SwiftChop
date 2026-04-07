@@ -372,29 +372,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       setCustomerOrders(prev => [orderWithItems, ...prev]);
 
-      // Dispatch to Shipday — for delivery orders only (not pickup)
-      const isPickupOrder = orderWithItems.delivery_address?.startsWith('PICKUP:');
-      if (!isPickupOrder) {
-        dispatchToShipday(data.id).then(({ data: shipdayResult, error: shipdayError }) => {
-          if (shipdayError) {
-            console.log('Shipday dispatch note:', shipdayError);
-          } else if (shipdayResult) {
-            console.log('Shipday dispatch success:', JSON.stringify(shipdayResult));
-            const updates: Partial<DbOrder> = {};
-            if (shipdayResult.trackingUrl) {
-              updates.shipday_tracking_url = shipdayResult.trackingUrl;
-            }
-            if (shipdayResult.shipdayOrderId) {
-              updates.shipday_order_id = shipdayResult.shipdayOrderId;
-            }
-            if (Object.keys(updates).length > 0) {
-              setCustomerOrders(prev =>
-                prev.map(o => o.id === data.id ? { ...o, ...updates } : o)
-              );
-            }
-          }
-        });
-      }
+      // NOTE: Shipday dispatch is NOT triggered here.
+      // It will be triggered when the restaurant ACCEPTS the order (status → confirmed).
+      // See updateOrderStatus below.
 
       return orderWithItems;
     }
@@ -423,6 +403,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await updateOrderStatusDb(orderId, status);
     setRestaurantOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
     setCustomerOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
+
+    // When restaurant ACCEPTS the order (confirmed), dispatch to Shipday for delivery orders
+    if (status === 'confirmed') {
+      const order = [...restaurantOrders, ...customerOrders].find(o => o.id === orderId);
+      const isPickupOrder = order?.delivery_address?.startsWith('PICKUP:');
+      if (!isPickupOrder) {
+        dispatchToShipday(orderId).then(({ data: shipdayResult, error: shipdayError }) => {
+          if (shipdayError) {
+            console.log('Shipday dispatch note:', shipdayError);
+          } else if (shipdayResult) {
+            console.log('Shipday dispatch success (on accept):', JSON.stringify(shipdayResult));
+            const updates: Partial<DbOrder> = {};
+            if (shipdayResult.trackingUrl) updates.shipday_tracking_url = shipdayResult.trackingUrl;
+            if (shipdayResult.shipdayOrderId) updates.shipday_order_id = shipdayResult.shipdayOrderId;
+            if (Object.keys(updates).length > 0) {
+              setCustomerOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o));
+              setRestaurantOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o));
+            }
+          }
+        });
+      }
+    }
   };
 
   const addMenuItem = async (item: Omit<DbMenuItem, 'id' | 'created_at'>) => {

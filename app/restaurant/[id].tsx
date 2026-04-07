@@ -552,7 +552,7 @@ export default function RestaurantDetailScreen() {
             const isBogo = (item as any).is_bogo && isBogoActive((item as any).bogo_start, (item as any).bogo_end);
             const bogoRemaining = isBogo ? getBogoTimeRemaining((item as any).bogo_end) : null;
             return (
-              <View key={item.id} style={[styles.menuItem, (!item.is_available || !canOrder) && { opacity: 0.5 }]}>
+              <Pressable key={item.id} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push({ pathname: '/menu-item/[id]', params: { id: item.id, restaurantId: restaurant.id, restaurantName: restaurant.name } }); }} style={[styles.menuItem, (!item.is_available || !canOrder) && { opacity: 0.5 }]}>
                 <View style={{ flex: 1, paddingRight: 12 }}>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
                     {item.is_popular ? (
@@ -586,7 +586,7 @@ export default function RestaurantDetailScreen() {
                     <View style={styles.unavailableBadge}><Text style={styles.unavailableText}>{!canOrder ? 'Closed' : 'Unavailable'}</Text></View>
                   )}
                 </View>
-              </View>
+              </Pressable>
             );
           })}
           {activeItems.length === 0 ? (

@@ -291,72 +291,56 @@ Deno.serve(async (req: Request) => {
       let riderId: string | null = null;
       let riderProfile: any = null;
 
-      // Strategy 1: Match rider by Shipday carrier phone
-      if (order.shipday_carrier_phone) {
-        const rawPhone = order.shipday_carrier_phone.replace(/[\s\-()]/g, '');
-        // Get last 10 digits for matching
-        const last10 = rawPhone.slice(-10);
-        console.log(`Looking for rider by phone, raw: ${rawPhone}, last10: ${last10}`);
+      // Fetch all approved riders once for matching
+      const { data: allRiders } = await supabaseAdmin
+        .from('user_profiles')
+        .select('*')
+        .eq('role', 'rider')
+        .eq('is_approved', true);
 
-        const { data: riders } = await supabaseAdmin
-          .from('user_profiles')
-          .select('*')
-          .eq('role', 'rider')
-          .eq('is_approved', true);
+      const riders = allRiders || [];
+      console.log(`Found ${riders.length} approved riders for matching`);
 
-        if (riders && riders.length > 0) {
-          // Try to match by last 10 digits of phone
-          riderProfile = riders.find((r: any) => {
-            if (!r.phone) return false;
-            const rPhone = r.phone.replace(/[\s\-()]/g, '');
-            const rLast10 = rPhone.slice(-10);
-            return rLast10 === last10 || rPhone === rawPhone;
-          });
-
-          // Fallback: if only one approved rider exists, use them
-          if (!riderProfile && riders.length === 1) {
-            riderProfile = riders[0];
-            console.log(`Single approved rider found, using: ${riderProfile.username} (${riderProfile.id})`);
-          }
-
-          // Fallback: match by Shipday carrier name
-          if (!riderProfile && order.shipday_carrier_name) {
-            const carrierNameLower = order.shipday_carrier_name.toLowerCase().trim();
-            riderProfile = riders.find((r: any) => {
-              if (!r.username) return false;
-              return r.username.toLowerCase().trim() === carrierNameLower ||
-                     r.username.toLowerCase().includes(carrierNameLower) ||
-                     carrierNameLower.includes(r.username.toLowerCase().trim());
-            });
-            if (riderProfile) {
-              console.log(`Matched rider by name: ${riderProfile.username}`);
-            }
-          }
-        }
+      // Helper: extract last 10 digits from any phone format
+      function normalizePhone(phone: string): string {
+        // Remove all non-digit characters
+        const digits = phone.replace(/\D/g, '');
+        // Return last 10 digits (Nigerian local number)
+        return digits.slice(-10);
       }
 
-      // Strategy 2: If no carrier phone, try by carrier name only
+      // Strategy 1: Match by phone number (last 10 digits)
+      if (order.shipday_carrier_phone) {
+        const carrierLast10 = normalizePhone(order.shipday_carrier_phone);
+        console.log(`Matching rider by phone - carrier last10: ${carrierLast10} (raw: ${order.shipday_carrier_phone})`);
+
+        riderProfile = riders.find((r: any) => {
+          if (!r.phone) return false;
+          const riderLast10 = normalizePhone(r.phone);
+          const match = riderLast10 === carrierLast10;
+          if (match) console.log(`Phone match found: rider ${r.username} (${r.phone}) last10=${riderLast10}`);
+          return match;
+        }) || null;
+      }
+
+      // Strategy 2: Match by carrier name
       if (!riderProfile && order.shipday_carrier_name) {
         const carrierNameLower = order.shipday_carrier_name.toLowerCase().trim();
-        const { data: riders } = await supabaseAdmin
-          .from('user_profiles')
-          .select('*')
-          .eq('role', 'rider')
-          .eq('is_approved', true);
+        console.log(`Matching rider by name: ${carrierNameLower}`);
+        riderProfile = riders.find((r: any) => {
+          if (!r.username) return false;
+          const rName = r.username.toLowerCase().trim();
+          return rName === carrierNameLower ||
+                 rName.includes(carrierNameLower) ||
+                 carrierNameLower.includes(rName);
+        }) || null;
+        if (riderProfile) console.log(`Name match found: ${riderProfile.username}`);
+      }
 
-        if (riders) {
-          riderProfile = riders.find((r: any) => {
-            if (!r.username) return false;
-            return r.username.toLowerCase().includes(carrierNameLower) ||
-                   carrierNameLower.includes(r.username.toLowerCase().trim());
-          });
-
-          // Last resort: if only one rider exists
-          if (!riderProfile && riders.length === 1) {
-            riderProfile = riders[0];
-            console.log(`Fallback: single approved rider: ${riderProfile.username}`);
-          }
-        }
+      // Strategy 3: If only one approved rider, use them
+      if (!riderProfile && riders.length === 1) {
+        riderProfile = riders[0];
+        console.log(`Fallback: single approved rider: ${riderProfile.username} (${riderProfile.id})`);
       }
 
       if (riderProfile) {

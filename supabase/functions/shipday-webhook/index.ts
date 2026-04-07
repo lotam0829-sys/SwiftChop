@@ -3,9 +3,14 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // Map Shipday webhook events to internal order statuses
 function mapShipdayStatus(event: string, orderStatus: string): string | null {
+  // IMPORTANT: The restaurant acceptance flow now controls the initial statuses.
+  // Shipday is dispatched AFTER restaurant accepts (status = confirmed).
+  // So Shipday events should NOT downgrade status back to pending/confirmed.
+  // We only map events that represent NEW information from the rider/delivery side.
   const eventMap: Record<string, string> = {
-    'ORDER_INSERTED': 'pending',
-    'ORDER_ASSIGNED': 'confirmed',
+    // ORDER_INSERTED just confirms Shipday received it — don't change status
+    // ORDER_ASSIGNED means a rider accepted on Shipday
+    'ORDER_ASSIGNED': 'preparing',
     'ORDER_ACCEPTED_AND_STARTED': 'preparing',
     'ORDER_PIKEDUP': 'on_the_way',
     'ORDER_ONTHEWAY': 'on_the_way',
@@ -17,9 +22,7 @@ function mapShipdayStatus(event: string, orderStatus: string): string | null {
   if (eventMap[event]) return eventMap[event];
 
   const statusMap: Record<string, string> = {
-    'NOT_ASSIGNED': 'pending',
-    'NOT_ACCEPTED': 'pending',
-    'NOT_STARTED_YET': 'confirmed',
+    // Don't map NOT_ASSIGNED/NOT_ACCEPTED — those are Shipday's initial states
     'STARTED': 'preparing',
     'PICKED_UP': 'on_the_way',
     'READY_TO_DELIVER': 'on_the_way',

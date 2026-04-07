@@ -326,24 +326,41 @@ export default function CheckoutScreen() {
             />
           </View>
 
-          {/* Order Summary */}
+          {/* Order Summary — Full Breakdown */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <MaterialIcons name="receipt" size={20} color={theme.primary} />
               <Text style={styles.sectionTitle}>Order Summary</Text>
             </View>
+
+            {/* Individual items */}
+            <Text style={styles.breakdownSectionLabel}>Food Items</Text>
             {cart.map((ci) => (
               <View key={ci.menuItem.id} style={styles.summaryItem}>
                 <Text style={styles.summaryItemQty}>{ci.quantity}x</Text>
-                <Text style={styles.summaryItemName} numberOfLines={1}>{ci.menuItem.name}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.summaryItemName} numberOfLines={1}>{ci.menuItem.name}</Text>
+                  <Text style={styles.breakdownUnitPrice}>{config.currency}{ci.menuItem.price.toLocaleString()} each</Text>
+                </View>
                 <Text style={styles.summaryItemPrice}>{config.currency}{(ci.menuItem.price * ci.quantity).toLocaleString()}</Text>
               </View>
             ))}
             <View style={styles.divider} />
-            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Subtotal</Text><Text style={styles.summaryValue}>{config.currency}{cartTotal.toLocaleString()}</Text></View>
+
+            {/* Subtotal */}
             <View style={styles.summaryRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={styles.summaryLabel}>Delivery fee</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialIcons name="restaurant-menu" size={14} color={theme.textMuted} />
+                <Text style={styles.summaryLabel}>Food Subtotal</Text>
+              </View>
+              <Text style={styles.summaryValue}>{config.currency}{cartTotal.toLocaleString()}</Text>
+            </View>
+
+            {/* Delivery fee */}
+            <View style={styles.summaryRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialIcons name="delivery-dining" size={14} color={theme.textMuted} />
+                <Text style={styles.summaryLabel}>Delivery Fee</Text>
                 {orderType === 'delivery' && estimatedKm ? (
                   <Text style={styles.summaryHint}>(~{estimatedKm}km)</Text>
                 ) : null}
@@ -352,7 +369,48 @@ export default function CheckoutScreen() {
                 {orderType === 'pickup' ? 'FREE' : `${config.currency}${deliveryFee.toLocaleString()}`}
               </Text>
             </View>
-            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Service fee</Text><Text style={styles.summaryValue}>{config.currency}{serviceFee.toLocaleString()}</Text></View>
+
+            {/* Service/App fee */}
+            <View style={styles.summaryRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialIcons name="apps" size={14} color={theme.textMuted} />
+                <Text style={styles.summaryLabel}>App Service Fee</Text>
+              </View>
+              <Text style={styles.summaryValue}>{config.currency}{serviceFee.toLocaleString()}</Text>
+            </View>
+
+            {/* Tax row — currently ₦0 */}
+            <View style={styles.summaryRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialIcons name="account-balance" size={14} color={theme.textMuted} />
+                <Text style={styles.summaryLabel}>Tax</Text>
+              </View>
+              <Text style={[styles.summaryValue, { color: theme.success }]}>{config.currency}0</Text>
+            </View>
+
+            <View style={styles.divider} />
+
+            {/* Total breakdown summary */}
+            <View style={styles.breakdownTotalCard}>
+              <View style={styles.breakdownTotalRow}>
+                <Text style={styles.breakdownTotalLabel}>Food</Text>
+                <Text style={styles.breakdownTotalVal}>{config.currency}{cartTotal.toLocaleString()}</Text>
+              </View>
+              {orderType === 'delivery' ? (
+                <View style={styles.breakdownTotalRow}>
+                  <Text style={styles.breakdownTotalLabel}>+ Delivery</Text>
+                  <Text style={styles.breakdownTotalVal}>{config.currency}{deliveryFee.toLocaleString()}</Text>
+                </View>
+              ) : null}
+              <View style={styles.breakdownTotalRow}>
+                <Text style={styles.breakdownTotalLabel}>+ Service Fee</Text>
+                <Text style={styles.breakdownTotalVal}>{config.currency}{serviceFee.toLocaleString()}</Text>
+              </View>
+              <View style={[styles.breakdownTotalRow, { borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 10, marginTop: 6 }]}>
+                <Text style={styles.breakdownGrandLabel}>You Pay</Text>
+                <Text style={styles.breakdownGrandVal}>{config.currency}{total.toLocaleString()}</Text>
+              </View>
+            </View>
           </View>
 
           {orderType === 'delivery' ? (
@@ -431,6 +489,14 @@ const styles = StyleSheet.create({
   summaryItemQty: { fontSize: 14, fontWeight: '600', color: theme.primary, width: 30 },
   summaryItemName: { flex: 1, fontSize: 14, color: theme.textPrimary },
   summaryItemPrice: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
+  breakdownSectionLabel: { fontSize: 12, fontWeight: '600', color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
+  breakdownUnitPrice: { fontSize: 11, color: theme.textMuted, marginTop: 1 },
+  breakdownTotalCard: { backgroundColor: theme.backgroundSecondary, borderRadius: 12, padding: 14, marginTop: 4 },
+  breakdownTotalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  breakdownTotalLabel: { fontSize: 13, color: theme.textSecondary },
+  breakdownTotalVal: { fontSize: 13, fontWeight: '600', color: theme.textPrimary },
+  breakdownGrandLabel: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
+  breakdownGrandVal: { fontSize: 18, fontWeight: '700', color: theme.primary },
   divider: { height: 1, backgroundColor: theme.border, marginVertical: 12 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   summaryLabel: { fontSize: 14, color: theme.textSecondary },

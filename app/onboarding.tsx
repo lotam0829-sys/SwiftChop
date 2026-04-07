@@ -639,6 +639,7 @@ export default function OnboardingScreen() {
                 <MaterialIcons name="phone" size={20} color={theme.textMuted} style={styles.inputIcon} />
                 <TextInput style={styles.input} placeholder="+234 801 234 5678" placeholderTextColor={theme.textMuted} value={riderPhone} onChangeText={setRiderPhone} keyboardType="phone-pad" />
               </View>
+              <Text style={styles.inputHint}>Use the same phone number you registered on Shipday Drive app</Text>
             </View>
 
             <View style={styles.inputGroup}>

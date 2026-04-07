@@ -78,6 +78,7 @@ function RootNavigator() {
         <Stack.Screen name="(rider)" />
         <Stack.Screen name="(restaurant)" />
         <Stack.Screen name="restaurant/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="menu-item/[id]" options={{ animation: 'slide_from_bottom', headerShown: false }} />
         <Stack.Screen name="cart" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         <Stack.Screen name="checkout" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="order-tracking" options={{ animation: 'slide_from_right' }} />
