@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { WebView } from 'react-native-webview';
 import { theme } from '../constants/theme';
-import { config, calculateDeliveryFee } from '../constants/config';
+import { config, calculateDeliveryFee, deliveryPricing } from '../constants/config';
 import { useApp } from '../contexts/AppContext';
 import { useAuth, useAlert } from '@/template';
 import { initializePaystackPayment } from '../services/supabaseData';
@@ -410,6 +410,17 @@ export default function CheckoutScreen() {
             </View>
           </View>
 
+          {/* High delivery fee recommendation */}
+          {orderType === 'delivery' && deliveryFee >= deliveryPricing.softWarningThreshold ? (
+            <View style={styles.highFeeRecommendation}>
+              <MaterialIcons name="lightbulb" size={18} color="#D97706" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.highFeeTitle}>Delivery fee is high</Text>
+                <Text style={styles.highFeeText}>Your delivery address is quite far from this restaurant. Consider ordering from a nearby restaurant to reduce your delivery fee.</Text>
+              </View>
+            </View>
+          ) : null}
+
           {/* Restaurant closed warning */}
           {!isCurrentlyOpen ? (
             <View style={styles.closedWarning}>
@@ -520,4 +531,7 @@ const styles = StyleSheet.create({
   closedWarningText: { fontSize: 12, color: '#991B1B', lineHeight: 17 },
   closingSoonWarning: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 16, padding: 12, borderRadius: 12, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
   closingSoonWarningText: { fontSize: 13, fontWeight: '600', color: '#92400E' },
+  highFeeRecommendation: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginHorizontal: 16, marginBottom: 16, padding: 14, borderRadius: 14, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
+  highFeeTitle: { fontSize: 14, fontWeight: '700', color: '#92400E', marginBottom: 4 },
+  highFeeText: { fontSize: 12, color: '#A16207', lineHeight: 17 },
 });

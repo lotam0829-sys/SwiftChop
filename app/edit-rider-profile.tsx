@@ -13,10 +13,9 @@ import { getSupabaseClient } from '@/template';
 import { updateUserProfile } from '../services/supabaseData';
 
 const vehicleTypes = [
-  { key: 'bike', label: 'Bicycle', icon: 'pedal-bike' },
-  { key: 'motorcycle', label: 'Motorcycle', icon: 'two-wheeler' },
-  { key: 'car', label: 'Car', icon: 'directions-car' },
+  { key: 'motorcycle', label: 'Dispatch Bike', icon: 'two-wheeler' },
   { key: 'tricycle', label: 'Tricycle', icon: 'electric-rickshaw' },
+  { key: 'car', label: 'Car', icon: 'directions-car' },
 ];
 
 export default function EditRiderProfileScreen() {

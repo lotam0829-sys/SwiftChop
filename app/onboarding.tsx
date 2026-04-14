@@ -86,10 +86,9 @@ const riderSlides = [
 type OnboardingPhase = 'slides' | 'location' | 'fees_acknowledgment' | 'card' | 'restaurant_details' | 'bank_details' | 'commission_agreement' | 'certificate' | 'rider_details' | 'rider_id' | 'rider_bank';
 
 const vehicleTypes = [
-  { key: 'bike', label: 'Bicycle', icon: 'pedal-bike' },
-  { key: 'motorcycle', label: 'Motorcycle', icon: 'two-wheeler' },
-  { key: 'car', label: 'Car', icon: 'directions-car' },
+  { key: 'motorcycle', label: 'Dispatch Bike', icon: 'two-wheeler' },
   { key: 'tricycle', label: 'Tricycle', icon: 'electric-rickshaw' },
+  { key: 'car', label: 'Car', icon: 'directions-car' },
 ];
 
 export default function OnboardingScreen() {
@@ -868,7 +867,7 @@ export default function OnboardingScreen() {
           <View style={styles.feeCard}>
             <View style={[styles.feeCardIcon, { backgroundColor: '#DBEAFE' }]}><MaterialIcons name="delivery-dining" size={28} color="#2563EB" /></View>
             <Text style={styles.feeCardTitle}>Delivery Fee</Text>
-            <Text style={styles.feeCardDesc}>The delivery fee starts at {"\u20A6"}1,000 base fee plus {"\u20A6"}150 per mile, capped at {"\u20A6"}5,000. Closer restaurants mean lower delivery fees. The exact amount is shown at checkout.</Text>
+            <Text style={styles.feeCardDesc}>The delivery fee starts at {"\u20A6"}1,000 base fee plus {"\u20A6"}150 per mile, based on the distance to your restaurant. Closer restaurants mean lower delivery fees. The exact amount is shown at checkout.</Text>
           </View>
 
           <View style={styles.feeHighlight}>

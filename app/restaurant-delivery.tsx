@@ -35,8 +35,8 @@ export default function RestaurantDeliveryScreen() {
             </View>
             <Text style={styles.formulaOp}>=</Text>
             <View style={styles.formulaItem}>
-              <Text style={styles.formulaLabel}>Max</Text>
-              <Text style={styles.formulaValue}>{"\u20A6"}{deliveryPricing.maxFee.toLocaleString()}</Text>
+              <Text style={styles.formulaLabel}>No Cap</Text>
+              <Text style={styles.formulaValue}>Distance{"\n"}Based</Text>
             </View>
           </View>
         </View>

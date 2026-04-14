@@ -28,8 +28,7 @@ interface RiderProfile {
 }
 
 const vehicleConfig: Record<string, { label: string; icon: string; color: string }> = {
-  bike: { label: 'Bicycle', icon: 'pedal-bike', color: '#3B82F6' },
-  motorcycle: { label: 'Motorcycle', icon: 'two-wheeler', color: '#10B981' },
+  motorcycle: { label: 'Dispatch Bike', icon: 'two-wheeler', color: '#10B981' },
   car: { label: 'Car', icon: 'directions-car', color: '#8B5CF6' },
   tricycle: { label: 'Tricycle', icon: 'electric-rickshaw', color: '#F59E0B' },
 };

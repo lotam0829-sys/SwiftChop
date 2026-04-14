@@ -35,7 +35,7 @@ export default function PaymentMethodsScreen() {
             </View>
             <Text style={styles.cardBrand}>Paystack</Text>
           </View>
-          <Text style={styles.cardNumber}>{"\u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  ****"}</Text>
+          <Text style={styles.cardNumber}>{"\u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022"}</Text>
           <View style={styles.cardBottomRow}>
             <View>
               <Text style={styles.cardSmallLabel}>CARDHOLDER</Text>

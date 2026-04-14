@@ -18,6 +18,8 @@ const RIDER_BASE_PAY = 100000; // ₦1,000 base in kobo
 const RIDER_PER_MILE_PAY = 15000; // ₦150/mile in kobo
 const KM_TO_MILES = 0.621371; // 1 km = 0.621371 miles
 const RIDER_MIN_PAY = 100000; // ₦1,000 minimum in kobo
+const DELIVERY_FEE_THRESHOLD_KOBO = 500000; // ₦5,000 in kobo — above this, platform fee may apply
+const DEFAULT_RIDER_PLATFORM_FEE_PCT = 3; // 3% default deduction
 
 function generateReference(prefix: string): string {
   const timestamp = Date.now().toString(36);
@@ -338,6 +340,34 @@ Deno.serve(async (req: Request) => {
 
       console.log(`Rider pay calculation: base=${RIDER_BASE_PAY} + ${orderMiles.toFixed(2)}mi (${orderDistance}km) * ${RIDER_PER_MILE_PAY} = ${rawRiderPay} kobo (min: ${RIDER_MIN_PAY}), final: ${riderPayAmount} kobo`);
 
+      // === ADMIN: RIDER PLATFORM FEE DEDUCTION ===
+      // Check admin_settings for rider platform fee toggle
+      let riderPlatformFeeDeducted = 0;
+      let riderFinalPayAmount = riderPayAmount;
+      const deliveryFeeKobo = (order.delivery_fee || 0) * 100;
+
+      try {
+        const { data: adminSetting } = await supabaseAdmin
+          .from('admin_settings')
+          .select('value')
+          .eq('key', 'rider_platform_fee')
+          .single();
+
+        if (adminSetting?.value?.enabled && deliveryFeeKobo > (adminSetting.value.delivery_fee_threshold || DELIVERY_FEE_THRESHOLD_KOBO)) {
+          const feePct = adminSetting.value.percentage || DEFAULT_RIDER_PLATFORM_FEE_PCT;
+          riderPlatformFeeDeducted = Math.round(riderPayAmount * (feePct / 100));
+          riderFinalPayAmount = riderPayAmount - riderPlatformFeeDeducted;
+          // Ensure rider still gets at least minimum
+          riderFinalPayAmount = Math.max(RIDER_MIN_PAY, riderFinalPayAmount);
+          console.log(`Rider platform fee: ${feePct}% of ${riderPayAmount} = ${riderPlatformFeeDeducted} kobo deducted. Delivery fee ${deliveryFeeKobo} kobo > threshold ${adminSetting.value.delivery_fee_threshold || DELIVERY_FEE_THRESHOLD_KOBO} kobo. Final rider pay: ${riderFinalPayAmount} kobo`);
+        } else {
+          console.log(`Rider platform fee: disabled or delivery fee ${deliveryFeeKobo} kobo below threshold. No deduction.`);
+        }
+      } catch (adminErr) {
+        console.log('Admin settings check error (non-blocking):', adminErr);
+        // Non-blocking: if settings table doesn't exist or query fails, no deduction
+      }
+
       let riderId: string | null = null;
       let riderProfile: any = null;
 
@@ -422,31 +452,43 @@ Deno.serve(async (req: Request) => {
 
             if (recipient) {
               const ref = generateReference('rider_pay');
+              const riderPayNairaFinal = Math.round(riderFinalPayAmount / 100);
               const transfer = await initiateTransfer(
                 paystackSecret,
-                riderPayAmount,
+                riderFinalPayAmount,
                 recipient.recipient_code,
                 `Delivery payment for order ${order.order_number}`,
                 ref
               );
 
-              // Record rider payment in DB
+              // Record rider payment in DB (with deduction metadata if applicable)
+              const paymentMetadata: Record<string, any> = {
+                distance_km: orderDistance,
+              };
+              if (riderPlatformFeeDeducted > 0) {
+                paymentMetadata.platform_fee_kobo = riderPlatformFeeDeducted;
+                paymentMetadata.platform_fee_naira = Math.round(riderPlatformFeeDeducted / 100);
+                paymentMetadata.gross_amount_naira = riderPayNaira;
+                paymentMetadata.net_amount_naira = riderPayNairaFinal;
+              }
+
               const { error: riderPayError } = await supabaseAdmin
                 .from('rider_payments')
                 .insert({
                   order_id: order.id,
                   rider_id: riderId,
-                  amount: riderPayNaira,
+                  amount: riderPayNairaFinal,
                   distance_km: orderDistance,
                   status: transfer?.status === 'success' ? 'completed' : 'pending',
                   paystack_transfer_code: transfer?.transfer_code || null,
                   paystack_reference: ref,
+                  metadata: paymentMetadata,
                 });
 
               if (riderPayError) {
                 console.error('Failed to record rider payment:', riderPayError.message);
               } else {
-                console.log(`Rider payment recorded: ₦${riderPayNaira}`);
+                console.log(`Rider payment recorded: ₦${riderPayNairaFinal}${riderPlatformFeeDeducted > 0 ? ` (gross: ₦${riderPayNaira}, fee: ₦${Math.round(riderPlatformFeeDeducted/100)})` : ''}`);
               }
 
               transferDone = true;
@@ -491,8 +533,12 @@ Deno.serve(async (req: Request) => {
               results.rider_payout = {
                 rider_id: riderId,
                 rider_name: riderProfile.username,
-                amount_kobo: riderPayAmount,
-                amount_naira: riderPayNaira,
+                gross_amount_kobo: riderPayAmount,
+                gross_amount_naira: riderPayNaira,
+                platform_fee_deducted_kobo: riderPlatformFeeDeducted,
+                platform_fee_deducted_naira: Math.round(riderPlatformFeeDeducted / 100),
+                net_amount_kobo: riderFinalPayAmount,
+                net_amount_naira: riderPayNairaFinal,
                 distance_km: orderDistance,
                 transfer_code: transfer?.transfer_code || null,
                 status: transfer?.status || 'failed',
@@ -512,7 +558,7 @@ Deno.serve(async (req: Request) => {
                       to: riderProfile.push_token,
                       sound: 'default',
                       title: 'Payment Received!',
-                      body: `You earned \u20A6${riderPayNaira.toLocaleString()} for delivering order ${order.order_number}.`,
+                      body: `You earned \u20A6${riderPayNairaFinal.toLocaleString()} for delivering order ${order.order_number}.`,
                       data: { type: 'rider_payment', orderId: order.id },
                       priority: 'high',
                       channelId: 'order-updates',
