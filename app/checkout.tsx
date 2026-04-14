@@ -250,7 +250,7 @@ export default function CheckoutScreen() {
                 <MaterialIcons name="delivery-dining" size={22} color={orderType === 'delivery' ? '#FFF' : theme.textSecondary} />
                 <Text style={[styles.orderTypeBtnText, orderType === 'delivery' && styles.orderTypeBtnTextActive]}>Delivery</Text>
                 {orderType === 'delivery' && estimatedKm ? (
-                  <Text style={styles.orderTypeHint}>~{estimatedKm}km</Text>
+                  <Text style={styles.orderTypeHint}>~{(estimatedKm * 0.621371).toFixed(1)} mi</Text>
                 ) : null}
               </Pressable>
               <Pressable
@@ -375,7 +375,7 @@ export default function CheckoutScreen() {
                 <MaterialIcons name="delivery-dining" size={14} color={theme.textMuted} />
                 <Text style={styles.summaryLabel}>Delivery Fee</Text>
                 {orderType === 'delivery' && estimatedKm ? (
-                  <Text style={styles.summaryHint}>(~{estimatedKm}km)</Text>
+                  <Text style={styles.summaryHint}>(~{(estimatedKm * 0.621371).toFixed(1)} mi)</Text>
                 ) : null}
               </View>
               <Text style={[styles.summaryValue, orderType === 'pickup' && { color: theme.success }]}>

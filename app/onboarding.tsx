@@ -71,8 +71,8 @@ const riderSlides = [
   },
   {
     image: require('@/assets/images/onboarding-restaurant-2.jpg'),
-    title: 'Instant Payouts',
-    subtitle: 'Get paid immediately after each delivery. No waiting for weekly or monthly payouts — your money, your way.',
+    title: 'Competitive Pay',
+    subtitle: 'Earn \u20A61,000 base fee plus \u20A6150 per mile for every delivery. Get paid directly to your bank account after each completed order.',
     icon: 'account-balance-wallet',
   },
   {
@@ -868,7 +868,7 @@ export default function OnboardingScreen() {
           <View style={styles.feeCard}>
             <View style={[styles.feeCardIcon, { backgroundColor: '#DBEAFE' }]}><MaterialIcons name="delivery-dining" size={28} color="#2563EB" /></View>
             <Text style={styles.feeCardTitle}>Delivery Fee</Text>
-            <Text style={styles.feeCardDesc}>The delivery fee is calculated based on the distance between you and the restaurant. Closer restaurants mean lower delivery fees. The exact amount is shown at checkout.</Text>
+            <Text style={styles.feeCardDesc}>The delivery fee starts at {"\u20A6"}1,000 base fee plus {"\u20A6"}150 per mile, capped at {"\u20A6"}5,000. Closer restaurants mean lower delivery fees. The exact amount is shown at checkout.</Text>
           </View>
 
           <View style={styles.feeHighlight}>

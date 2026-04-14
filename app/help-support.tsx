@@ -11,7 +11,7 @@ const faqs = [
   { q: 'How do I track my order?', a: 'After placing an order, go to Orders tab and tap on the active order. You will receive a Shipday tracking link via your phone number or email. You can also tap "Track Live on Map" in the app to see the rider location and order status in real-time.' },
   { q: 'How can I cancel an order?', a: 'You can cancel within 2 minutes of placing. After that, contact support for help.' },
   { q: 'What payment methods are accepted?', a: 'We accept debit and credit cards only. Bank transfers and cash on delivery are not available.' },
-  { q: 'How is the delivery fee calculated?', a: 'Delivery fees are based on the distance between the restaurant and your delivery address. A base fee of \u20A6500 plus \u20A6150 per kilometre applies, capped at \u20A65,000.' },
+  { q: 'How is the delivery fee calculated?', a: 'Delivery fees are based on the distance between the restaurant and your delivery address. A base fee of \u20A61,000 plus \u20A6150 per mile applies, capped at \u20A65,000.' },
   { q: 'My order arrived cold/damaged', a: 'Contact our support team within 30 minutes of delivery and we will arrange a refund or replacement.' },
   { q: 'How do I get the tracking link?', a: 'Once your order is dispatched, Shipday sends a tracking link to your registered phone number and email. You can also find it in the order tracking screen inside the app.' },
 ];

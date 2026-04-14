@@ -14,19 +14,20 @@ export const config = {
 };
 
 // Distance-based delivery fee pricing
-// Delivery fee is calculated as: baseFee + (distance_km * perKmRate)
+// Delivery fee is calculated as: baseFee + (distance_miles * perMileRate)
 // Clamped between minFee and maxFee
 export const deliveryPricing = {
-  baseFee: 500,       // ₦500 base fee
-  perKmRate: 150,     // ₦150 per kilometre
-  minFee: 500,        // Minimum delivery fee
+  baseFee: 1000,      // ₦1,000 base fee
+  perMileRate: 150,   // ₦150 per mile
+  minFee: 1000,       // Minimum delivery fee
   maxFee: 5000,       // Maximum delivery fee cap
-  defaultEstimateKm: 3, // Default distance estimate when actual distance is unknown (km)
+  defaultEstimateMiles: 2, // Default distance estimate when actual distance is unknown (miles)
+  kmToMiles: 0.621371, // Conversion factor: 1 km = 0.621371 miles
 };
 
 /**
  * Calculate delivery fee from distance in kilometres.
- * Uses: baseFee + (km * perKmRate), clamped to [minFee, maxFee].
+ * Converts km to miles, then applies: baseFee + (miles * perMileRate), clamped to [minFee, maxFee].
  */
 // Cuisine → color mapping for pill tags
 export const cuisineColors: Record<string, { bg: string; text: string }> = {
@@ -67,7 +68,8 @@ export function parseCuisines(cuisine: string): string[] {
 }
 
 export function calculateDeliveryFee(distanceKm?: number | null): number {
-  const km = distanceKm ?? deliveryPricing.defaultEstimateKm;
-  const raw = deliveryPricing.baseFee + Math.ceil(km) * deliveryPricing.perKmRate;
+  const km = distanceKm ?? (deliveryPricing.defaultEstimateMiles / deliveryPricing.kmToMiles);
+  const miles = km * deliveryPricing.kmToMiles;
+  const raw = deliveryPricing.baseFee + Math.ceil(miles) * deliveryPricing.perMileRate;
   return Math.min(deliveryPricing.maxFee, Math.max(deliveryPricing.minFee, raw));
 }

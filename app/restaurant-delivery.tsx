@@ -26,17 +26,17 @@ export default function RestaurantDeliveryScreen() {
           <View style={styles.formulaRow}>
             <View style={styles.formulaItem}>
               <Text style={styles.formulaLabel}>Base Fee</Text>
-              <Text style={styles.formulaValue}>{"\u20A6"}{deliveryPricing.baseFee}</Text>
+              <Text style={styles.formulaValue}>{"\u20A6"}{deliveryPricing.baseFee.toLocaleString()}</Text>
             </View>
             <Text style={styles.formulaOp}>+</Text>
             <View style={styles.formulaItem}>
-              <Text style={styles.formulaLabel}>Per km</Text>
-              <Text style={styles.formulaValue}>{"\u20A6"}{deliveryPricing.perKmRate}</Text>
+              <Text style={styles.formulaLabel}>Per mile</Text>
+              <Text style={styles.formulaValue}>{"\u20A6"}{deliveryPricing.perMileRate}</Text>
             </View>
             <Text style={styles.formulaOp}>=</Text>
             <View style={styles.formulaItem}>
               <Text style={styles.formulaLabel}>Max</Text>
-              <Text style={styles.formulaValue}>{"\u20A6"}{deliveryPricing.maxFee}</Text>
+              <Text style={styles.formulaValue}>{"\u20A6"}{deliveryPricing.maxFee.toLocaleString()}</Text>
             </View>
           </View>
         </View>

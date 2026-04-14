@@ -34,7 +34,7 @@ const faqSections = [
     faqs: [
       { q: 'How do I change my operating hours?', a: 'Go to Settings > Operating Hours. Set your daily open and close times for each day of the week.' },
       { q: 'How do I pause receiving orders?', a: 'Toggle the "Open/Closed" status on your Dashboard to temporarily stop receiving new orders. You can reopen at any time.' },
-      { q: 'How is the delivery fee calculated?', a: 'Delivery fees are automatically calculated based on the distance between your restaurant and the customer. You do not need to set this manually.' },
+      { q: 'How is the delivery fee calculated?', a: 'Delivery fees are automatically calculated based on the distance between your restaurant and the customer. The formula is \u20A61,000 base fee plus \u20A6150 per mile, capped at \u20A65,000. You do not need to set this manually.' },
     ],
   },
 ];
