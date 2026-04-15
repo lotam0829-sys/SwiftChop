@@ -36,6 +36,56 @@ function parseTimeToMinutes(time: string): number {
 /**
  * Hook that computes restaurant open/close status, closing-soon badge, and formatted hours.
  */
+/**
+ * Non-hook utility: get closing info for a restaurant from its operating_hours.
+ * Returns { isOpen, closingSoon, minutesUntilClose, closingSoonLabel }.
+ */
+export function getRestaurantClosingInfo(operatingHours: any): {
+  isOpen: boolean;
+  closingSoon: boolean;
+  closingSoonLabel: string | null;
+  minutesUntilClose: number | null;
+} {
+  const hours: OperatingHours = operatingHours && typeof operatingHours === 'object'
+    ? { ...defaultHours, ...operatingHours }
+    : defaultHours;
+
+  const now = new Date();
+  const dayIndex = now.getDay();
+  const todayKey = DAYS_ORDER[dayIndex];
+  const todayHours = hours[todayKey];
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  let isOpen = false;
+  let minutesUntilClose: number | null = null;
+  let closingSoon = false;
+  let closingSoonLabel: string | null = null;
+
+  if (todayHours && todayHours.is_open) {
+    const openMin = parseTimeToMinutes(todayHours.open);
+    const closeMin = parseTimeToMinutes(todayHours.close);
+    if (closeMin > openMin) {
+      isOpen = currentMinutes >= openMin && currentMinutes < closeMin;
+      if (isOpen) minutesUntilClose = closeMin - currentMinutes;
+    } else if (closeMin < openMin) {
+      isOpen = currentMinutes >= openMin || currentMinutes < closeMin;
+      if (isOpen) {
+        minutesUntilClose = currentMinutes >= openMin
+          ? (24 * 60 - currentMinutes) + closeMin
+          : closeMin - currentMinutes;
+      }
+    } else {
+      isOpen = true;
+    }
+    if (minutesUntilClose !== null && minutesUntilClose <= 60 && minutesUntilClose > 0) {
+      closingSoon = true;
+      closingSoonLabel = `Closes in ${minutesUntilClose} min`;
+    }
+  }
+
+  return { isOpen, closingSoon, closingSoonLabel, minutesUntilClose };
+}
+
 export function useRestaurantHours(operatingHours: any) {
   return useMemo(() => {
     const hours: OperatingHours = operatingHours && typeof operatingHours === 'object'

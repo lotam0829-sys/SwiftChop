@@ -9,12 +9,117 @@ import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { useAlert } from '@/template';
 import { updateRestaurant } from '../../services/supabaseData';
+import { useRestaurantHours } from '../../hooks/useRestaurantHours';
 
 export default function RestaurantDashboard() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { showAlert } = useAlert();
   const { userProfile, restaurantOrders, restaurantMenuItems, loadingRestaurantData, ownerRestaurant, refreshRestaurantData } = useApp();
+
+  // Operating hours hook for to-do checklist
+  const { isCurrentlyOpen, formattedHours } = useRestaurantHours((ownerRestaurant as any)?.operating_hours);
+
+  // --- Progressive Onboarding To-Do Items ---
+  const todoItems = useMemo(() => {
+    const items: { key: string; label: string; sublabel: string; icon: string; done: boolean; route: string; priority: number }[] = [];
+
+    // 1. Restaurant name/description
+    const hasName = !!ownerRestaurant?.name && ownerRestaurant.name !== 'My Restaurant';
+    const hasDescription = !!ownerRestaurant?.description;
+    items.push({
+      key: 'profile',
+      label: 'Complete restaurant profile',
+      sublabel: hasName && hasDescription ? 'Name and description set' : 'Add name, cuisine, and description',
+      icon: 'storefront',
+      done: hasName && hasDescription,
+      route: '/restaurant-account',
+      priority: 1,
+    });
+
+    // 2. Address
+    const hasAddress = !!ownerRestaurant?.address && ownerRestaurant.address !== 'Lagos, Nigeria';
+    items.push({
+      key: 'address',
+      label: 'Set restaurant address',
+      sublabel: hasAddress ? (ownerRestaurant?.address || '').substring(0, 40) : 'Add your physical address for customers',
+      icon: 'location-on',
+      done: hasAddress,
+      route: '/restaurant-account',
+      priority: 2,
+    });
+
+    // 3. GPS Location
+    const hasLocation = !!(ownerRestaurant as any)?.latitude && !!(ownerRestaurant as any)?.longitude;
+    items.push({
+      key: 'location',
+      label: 'Set GPS coordinates',
+      sublabel: hasLocation ? 'Location set for delivery fee calculation' : 'Required for accurate delivery fees',
+      icon: 'my-location',
+      done: hasLocation,
+      route: '/restaurant-account',
+      priority: 3,
+    });
+
+    // 4. Operating hours
+    const hasCustomHours = !!(ownerRestaurant as any)?.operating_hours;
+    items.push({
+      key: 'hours',
+      label: 'Set operating hours',
+      sublabel: hasCustomHours ? 'Hours configured' : 'Tell customers when you are open',
+      icon: 'schedule',
+      done: hasCustomHours,
+      route: '/restaurant-hours',
+      priority: 4,
+    });
+
+    // 5. Menu items
+    const hasMenu = restaurantMenuItems.length >= 3;
+    items.push({
+      key: 'menu',
+      label: 'Add menu items',
+      sublabel: restaurantMenuItems.length > 0 ? `${restaurantMenuItems.length} items added` : 'Add at least 3 items to your menu',
+      icon: 'restaurant-menu',
+      done: hasMenu,
+      route: '/(restaurant)/menu',
+      priority: 5,
+    });
+
+    // 6. Bank details (check via userProfile)
+    const hasBankDetails = !!userProfile && !!(userProfile as any).bank_account_number;
+    items.push({
+      key: 'bank',
+      label: 'Setup bank account',
+      sublabel: hasBankDetails ? 'Bank details configured' : 'Required to receive payouts',
+      icon: 'account-balance',
+      done: hasBankDetails,
+      route: '/restaurant-bank',
+      priority: 6,
+    });
+
+    // 7. Phone number
+    const hasPhone = !!(ownerRestaurant as any)?.phone || !!userProfile?.phone;
+    items.push({
+      key: 'phone',
+      label: 'Add contact number',
+      sublabel: hasPhone ? 'Phone number set' : 'So customers can reach you',
+      icon: 'phone',
+      done: hasPhone,
+      route: '/restaurant-contact',
+      priority: 7,
+    });
+
+    return items.sort((a, b) => {
+      if (a.done && !b.done) return 1;
+      if (!a.done && b.done) return -1;
+      return a.priority - b.priority;
+    });
+  }, [ownerRestaurant, restaurantMenuItems, userProfile]);
+
+  const completedCount = todoItems.filter(t => t.done).length;
+  const totalTodos = todoItems.length;
+  const setupProgress = totalTodos > 0 ? completedCount / totalTodos : 0;
+  const isSetupComplete = completedCount === totalTodos;
 
   const todayOrders = restaurantOrders.filter(o => {
     const d = new Date(o.created_at);
@@ -86,6 +191,43 @@ export default function RestaurantDashboard() {
             <Text style={[styles.statusText, !isOpen && { color: '#EF4444' }]}>{isOpen ? 'Open' : 'Closed'}</Text>
           </Pressable>
         </View>
+
+        {/* Progressive Onboarding To-Do */}
+        {!isSetupComplete ? (
+          <View style={styles.todoCard}>
+            <View style={styles.todoHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.todoTitle}>Setup Checklist</Text>
+                <Text style={styles.todoSub}>{completedCount}/{totalTodos} complete — finish setup to go live</Text>
+              </View>
+              <View style={styles.todoProgressCircle}>
+                <Text style={styles.todoProgressText}>{Math.round(setupProgress * 100)}%</Text>
+              </View>
+            </View>
+            <View style={styles.todoProgressBarBg}>
+              <View style={[styles.todoProgressBarFill, { width: `${setupProgress * 100}%` }]} />
+            </View>
+            {todoItems.filter(t => !t.done).slice(0, 3).map((item) => (
+              <Pressable
+                key={item.key}
+                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(item.route as any); }}
+                style={styles.todoItem}
+              >
+                <View style={styles.todoIconWrap}>
+                  <MaterialIcons name={item.icon as any} size={20} color={theme.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.todoItemLabel}>{item.label}</Text>
+                  <Text style={styles.todoItemSub}>{item.sublabel}</Text>
+                </View>
+                <MaterialIcons name="chevron-right" size={20} color="#666" />
+              </Pressable>
+            ))}
+            {todoItems.filter(t => !t.done).length > 3 ? (
+              <Text style={styles.todoMore}>+{todoItems.filter(t => !t.done).length - 3} more items</Text>
+            ) : null}
+          </View>
+        ) : null}
 
         <LinearGradient colors={['#1A1A1A', '#111']} style={styles.revenueCard}>
           <View style={styles.revenueRow}>
@@ -251,4 +393,18 @@ const styles = StyleSheet.create({
   actionsRow: { flexDirection: 'row', gap: 12 },
   actionCard: { flex: 1, backgroundColor: '#1A1A1A', borderRadius: 16, padding: 18, alignItems: 'center', gap: 10, borderWidth: 1, borderColor: '#2A2A2A' },
   actionLabel: { fontSize: 13, fontWeight: '600', color: '#CCC' },
+  // To-Do Checklist
+  todoCard: { marginHorizontal: 16, marginBottom: 20, backgroundColor: '#1A1A1A', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: 'rgba(255,107,0,0.25)' },
+  todoHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  todoTitle: { fontSize: 18, fontWeight: '700', color: '#FFF' },
+  todoSub: { fontSize: 13, color: '#999', marginTop: 4 },
+  todoProgressCircle: { width: 48, height: 48, borderRadius: 24, borderWidth: 3, borderColor: theme.primary, alignItems: 'center', justifyContent: 'center' },
+  todoProgressText: { fontSize: 13, fontWeight: '700', color: theme.primary },
+  todoProgressBarBg: { height: 6, borderRadius: 3, backgroundColor: '#2A2A2A', marginBottom: 16, overflow: 'hidden' },
+  todoProgressBarFill: { height: '100%', borderRadius: 3, backgroundColor: theme.primary },
+  todoItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#2A2A2A' },
+  todoIconWrap: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,107,0,0.1)', alignItems: 'center', justifyContent: 'center' },
+  todoItemLabel: { fontSize: 14, fontWeight: '600', color: '#FFF' },
+  todoItemSub: { fontSize: 12, color: '#999', marginTop: 2 },
+  todoMore: { textAlign: 'center', fontSize: 12, color: theme.primary, fontWeight: '600', marginTop: 8 },
 });

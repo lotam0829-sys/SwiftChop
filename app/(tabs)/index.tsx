@@ -11,13 +11,15 @@ import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { foodCategories } from '../../services/mockData';
 import { getImage } from '../../constants/images';
-import { DbRestaurant } from '../../services/supabaseData';
+import { DbRestaurant, DbMenuItem } from '../../services/supabaseData';
 import { getCuisineColor, parseCuisines, calculateDeliveryFee } from '../../constants/config';
+import { getRestaurantClosingInfo } from '../../hooks/useRestaurantHours';
+import { isBogoActive } from '../../constants/timeUtils';
 
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { userProfile, restaurants, loadingRestaurants, cartCount, userLocation, requestLocation, favoriteRestaurants, isFavorite, toggleFavorite } = useApp();
+  const { userProfile, restaurants, loadingRestaurants, cartCount, userLocation, requestLocation, favoriteRestaurants, isFavorite, toggleFavorite, allMenuItems } = useApp();
   const [activeCategory, setActiveCategory] = useState('all');
   const [locationName, setLocationName] = useState<string | null>(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
@@ -102,6 +104,36 @@ export default function HomeScreen() {
   const filtered = activeCategory === 'all'
     ? sortedRestaurants.filter(r => r.is_open)
     : sortedRestaurants.filter(r => r.is_open);
+
+  // Get closing info for a restaurant (non-hook utility)
+  const getClosingInfo = useCallback((r: DbRestaurant) => {
+    return getRestaurantClosingInfo((r as any).operating_hours);
+  }, []);
+
+  // Cross-restaurant food discovery: group menu items for carousel
+  const foodDiscovery = React.useMemo(() => {
+    if (allMenuItems.length === 0) return { popular: [], bogo: [], categories: {} as Record<string, (DbMenuItem & { restaurantName: string; restaurantId: string })[]> };
+
+    const enriched = allMenuItems.map(item => {
+      const rest = restaurants.find(r => r.id === item.restaurant_id);
+      return { ...item, restaurantName: rest?.name || 'Restaurant', restaurantId: item.restaurant_id };
+    }).filter(item => {
+      const rest = restaurants.find(r => r.id === item.restaurant_id);
+      return rest?.is_open;
+    });
+
+    const popular = enriched.filter(i => i.is_popular).slice(0, 12);
+    const bogo = enriched.filter(i => (i as any).is_bogo && isBogoActive((i as any).bogo_start, (i as any).bogo_end)).slice(0, 10);
+
+    const categories: Record<string, typeof enriched> = {};
+    enriched.forEach(item => {
+      const cat = item.category || 'other';
+      if (!categories[cat]) categories[cat] = [];
+      if (categories[cat].length < 10) categories[cat].push(item);
+    });
+
+    return { popular, bogo, categories };
+  }, [allMenuItems, restaurants]);
 
   const getRestaurantDistance = (r: DbRestaurant): number | null => {
     if (!userLocation) return null;
@@ -205,6 +237,65 @@ export default function HomeScreen() {
           <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 40 }} />
         ) : (
           <>
+            {/* BOGO Deals Discovery */}
+            {foodDiscovery.bogo.length > 0 ? (
+              <View style={styles.section}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, marginBottom: 14 }}>
+                  <MaterialIcons name="local-offer" size={20} color="#E65100" />
+                  <Text style={styles.sectionTitle}>Buy One, Get One Free</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 14 }}>
+                  {foodDiscovery.bogo.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/restaurant/${item.restaurantId}`); }}
+                      style={styles.foodCard}
+                    >
+                      <View style={styles.foodImageWrap}>
+                        <Image source={item.image_key?.startsWith('http') ? { uri: item.image_key } : getImage(item.image_key)} style={styles.foodImage} contentFit="cover" />
+                        <View style={styles.bogoTag}>
+                          <Text style={styles.bogoTagText}>BOGO</Text>
+                        </View>
+                      </View>
+                      <View style={styles.foodInfo}>
+                        <Text style={styles.foodName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={styles.foodRestaurant} numberOfLines={1}>{item.restaurantName}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={styles.foodPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
+                          <Text style={styles.foodFreeLabel}>+ 1 FREE</Text>
+                        </View>
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
+
+            {/* Popular Dishes Across Restaurants */}
+            {foodDiscovery.popular.length > 0 ? (
+              <View style={styles.section}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, marginBottom: 14 }}>
+                  <MaterialIcons name="local-fire-department" size={20} color={theme.primary} />
+                  <Text style={styles.sectionTitle}>Popular Dishes</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 14 }}>
+                  {foodDiscovery.popular.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/restaurant/${item.restaurantId}`); }}
+                      style={styles.foodCard}
+                    >
+                      <Image source={item.image_key?.startsWith('http') ? { uri: item.image_key } : getImage(item.image_key)} style={styles.foodImage} contentFit="cover" />
+                      <View style={styles.foodInfo}>
+                        <Text style={styles.foodName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={styles.foodRestaurant} numberOfLines={1}>{item.restaurantName}</Text>
+                        <Text style={styles.foodPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
             {/* Favorites Section */}
             {favoriteRestaurants.length > 0 ? (
               <View style={styles.section}>
@@ -330,6 +421,16 @@ export default function HomeScreen() {
                             <Text style={styles.ratingText}>{r.rating}</Text>
                           </View>
                         </View>
+                        {/* Dynamic business signals */}
+                        {(() => {
+                          const closing = getClosingInfo(r);
+                          return closing.closingSoon && closing.closingSoonLabel ? (
+                            <View style={styles.closingSoonTag}>
+                              <MaterialIcons name="access-time" size={12} color="#D97706" />
+                              <Text style={styles.closingSoonTagText}>{closing.closingSoonLabel}</Text>
+                            </View>
+                          ) : null;
+                        })()}
                         <View style={styles.cuisinePillsRow}>
                           {parseCuisines(r.cuisine).map((c, ci) => {
                             const cc = getCuisineColor(c);
@@ -482,6 +583,20 @@ const styles = StyleSheet.create({
   favName: { fontSize: 14, fontWeight: '700', color: theme.textPrimary },
   favMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   favMetaText: { fontSize: 11, fontWeight: '600', color: theme.textMuted },
+  // Closing soon tag
+  closingSoonTag: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: '#FEF3C7', alignSelf: 'flex-start' },
+  closingSoonTagText: { fontSize: 11, fontWeight: '700', color: '#D97706' },
+  // Food discovery cards
+  foodCard: { width: 152, borderRadius: 14, backgroundColor: '#FFF', overflow: 'hidden', ...theme.shadow.small },
+  foodImageWrap: { position: 'relative' },
+  foodImage: { width: 152, height: 100, borderTopLeftRadius: 14, borderTopRightRadius: 14 },
+  foodInfo: { padding: 10 },
+  foodName: { fontSize: 13, fontWeight: '700', color: theme.textPrimary },
+  foodRestaurant: { fontSize: 11, color: theme.textMuted, marginTop: 2 },
+  foodPrice: { fontSize: 14, fontWeight: '700', color: theme.primary, marginTop: 4 },
+  bogoTag: { position: 'absolute', top: 6, left: 6, backgroundColor: '#E65100', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  bogoTagText: { fontSize: 10, fontWeight: '800', color: '#FFF' },
+  foodFreeLabel: { fontSize: 11, fontWeight: '800', color: '#059669', backgroundColor: '#D1FAE5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   cuisinePillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   cuisinePill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   cuisinePillText: { fontSize: 10, fontWeight: '700' },

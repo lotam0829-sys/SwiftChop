@@ -5,7 +5,7 @@ import { useAuth } from '@/template';
 import * as Notifications from 'expo-notifications';
 import {
   DbRestaurant, DbMenuItem, DbOrder, DbUserProfile,
-  fetchRestaurants, fetchMenuItems, fetchAllMenuItems,
+  fetchRestaurants, fetchMenuItems, fetchAllMenuItems as fetchAllMenuItemsDb,
   fetchCustomerOrders, fetchRestaurantOrders,
   createOrder, updateOrderStatus as updateOrderStatusDb,
   fetchUserProfile, updateUserProfile as updateProfileDb,
@@ -85,6 +85,10 @@ interface AppContextType {
   toggleFavorite: (restaurantId: string) => Promise<void>;
   favoriteRestaurants: DbRestaurant[];
   loadingFavorites: boolean;
+
+  // All menu items (cross-restaurant food discovery)
+  allMenuItems: DbMenuItem[];
+  loadingAllMenuItems: boolean;
 }
 
 const AppContext = createContext<AppContextType>({} as AppContextType);
@@ -119,6 +123,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [loadingFavorites, setLoadingFavorites] = useState(false);
+  const [allMenuItems, setAllMenuItems] = useState<DbMenuItem[]>([]);
+  const [loadingAllMenuItems, setLoadingAllMenuItems] = useState(false);
 
   const notificationListener = useRef<any>();
   const responseListener = useRef<any>();
@@ -240,6 +246,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (userProfile.role === 'customer') {
       refreshCustomerOrders();
       loadFavorites();
+      loadAllMenuItems();
     } else if (userProfile.role === 'restaurant') {
       refreshRestaurantData();
     }
@@ -514,6 +521,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLoadingFavorites(false);
   };
 
+  const loadAllMenuItems = async () => {
+    setLoadingAllMenuItems(true);
+    const { data } = await fetchAllMenuItemsDb();
+    setAllMenuItems(data.filter(i => i.is_available));
+    setLoadingAllMenuItems(false);
+  };
+
   const isFavorite = (restaurantId: string): boolean => favoriteIds.includes(restaurantId);
 
   const toggleFavorite = async (restaurantId: string) => {
@@ -674,6 +688,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       userLocation, requestLocation,
       pushToken,
       favoriteIds, isFavorite, toggleFavorite, favoriteRestaurants, loadingFavorites,
+      allMenuItems, loadingAllMenuItems,
     }}>
       {children}
     </AppContext.Provider>
