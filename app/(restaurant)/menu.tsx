@@ -181,8 +181,12 @@ export default function RestaurantMenuScreen() {
       return;
     }
     if (!ownerRestaurant) {
-      showAlert('Error', 'No restaurant linked to your account');
-      return;
+      // Try refreshing restaurant data before giving up
+      await refreshRestaurantData();
+      if (!ownerRestaurant) {
+        showAlert('Error', 'No restaurant linked to your account. Please complete your restaurant profile first.');
+        return;
+      }
     }
     setAddLoading(true);
 

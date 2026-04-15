@@ -35,12 +35,15 @@ export default function CheckoutScreen() {
   const [paystackUrl, setPaystackUrl] = useState<string | null>(null);
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
 
+  // Scheduled order info
+  const scheduledTime = params.scheduledTime || null;
+
+  // Get restaurant info for pickup address
+  const restaurant = cart.length > 0 ? restaurants.find(r => r.id === cart[0].restaurantId) : null;
+
   // Restaurant hours enforcement
   const restaurantHoursData = restaurant ? (restaurant as any).operating_hours : null;
   const { isCurrentlyOpen, closingSoon, closingSoonLabel } = useRestaurantHours(restaurantHoursData);
-
-  // Scheduled order info
-  const scheduledTime = params.scheduledTime || null;
 
   // Pre-fill address from location
   useEffect(() => {
@@ -101,8 +104,6 @@ export default function CheckoutScreen() {
   const vat = Math.round((cartTotal + deliveryFee + serviceFee) * config.vatRate);
   const total = cartTotal + deliveryFee + serviceFee + vat;
 
-  // Get restaurant info for pickup address and subaccount
-  const restaurant = cart.length > 0 ? restaurants.find(r => r.id === cart[0].restaurantId) : null;
   // NOTE: Subaccount is NOT used for split payments. All funds go to SwiftChop's
   // main account first. Restaurant/rider payouts happen AFTER delivery confirmation.
   // This prevents premature credits.

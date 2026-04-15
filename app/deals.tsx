@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,162 +9,36 @@ import * as Haptics from 'expo-haptics';
 import { theme } from '../constants/theme';
 import { useApp } from '../contexts/AppContext';
 import { getImage } from '../constants/images';
-import { DbMenuItem, fetchAllMenuItems } from '../services/supabaseData';
-import { isBogoActive, getBogoTimeRemaining, formatBogoDuration } from '../constants/timeUtils';
+import { DbMenuItem } from '../services/supabaseData';
+import { isBogoActive, getBogoTimeRemaining } from '../constants/timeUtils';
 
-// Mock BOGO data to supplement real BOGO items
-const MOCK_BOGO_ITEMS: Array<{
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  image_key: string;
-  restaurant_name: string;
-  restaurant_id: string;
-  category: string;
-  is_bogo: boolean;
-  bogo_description: string;
-}> = [
-  {
-    id: 'mock-bogo-1',
-    name: 'Jollof Rice & Chicken',
-    description: 'Smoky party jollof rice with a perfectly grilled chicken thigh. A Nigerian classic.',
-    price: 3500,
-    image_key: 'heroJollof',
-    restaurant_name: 'Mama Nkechi Kitchen',
-    restaurant_id: 'mock-rest-1',
-    category: 'nigerian',
-    is_bogo: true,
-    bogo_description: 'Buy 1 plate, get 1 FREE!',
-  },
-  {
-    id: 'mock-bogo-2',
-    name: 'Peppered Suya',
-    description: 'Spicy grilled beef suya with onions, tomatoes, and extra yaji pepper.',
-    price: 2500,
-    image_key: 'foodSuya',
-    restaurant_name: 'Suya Spot Lagos',
-    restaurant_id: 'mock-rest-2',
-    category: 'grilled',
-    is_bogo: true,
-    bogo_description: 'Get 2 skewers for the price of 1!',
-  },
-  {
-    id: 'mock-bogo-3',
-    name: 'Fried Rice Special',
-    description: 'Nigerian-style fried rice with mixed vegetables, shrimp, and grilled plantain.',
-    price: 4000,
-    image_key: 'foodFriedrice',
-    restaurant_name: 'ChopChop Express',
-    restaurant_id: 'mock-rest-3',
-    category: 'rice',
-    is_bogo: true,
-    bogo_description: 'Buy 1, get 1 FREE for a friend!',
-  },
-  {
-    id: 'mock-bogo-4',
-    name: 'Egusi Soup & Pounded Yam',
-    description: 'Rich melon seed soup with assorted meat and fresh pounded yam.',
-    price: 5000,
-    image_key: 'foodEgusi',
-    restaurant_name: 'Iya Basira Place',
-    restaurant_id: 'mock-rest-4',
-    category: 'soups',
-    is_bogo: true,
-    bogo_description: 'Order 1 bowl, get another FREE!',
-  },
-  {
-    id: 'mock-bogo-5',
-    name: 'Moi Moi Deluxe',
-    description: 'Steamed bean pudding with boiled egg, fish, and corned beef.',
-    price: 1500,
-    image_key: 'foodMoimoi',
-    restaurant_name: 'Mama Nkechi Kitchen',
-    restaurant_id: 'mock-rest-1',
-    category: 'snacks',
-    is_bogo: true,
-    bogo_description: 'Buy 2, get 2 FREE!',
-  },
-  {
-    id: 'mock-bogo-6',
-    name: 'Pepper Soup (Goat Meat)',
-    description: 'Fiery goat meat pepper soup with aromatic spices. Perfect for any occasion.',
-    price: 3000,
-    image_key: 'foodPepperSoup',
-    restaurant_name: 'Iya Basira Place',
-    restaurant_id: 'mock-rest-4',
-    category: 'soups',
-    is_bogo: true,
-    bogo_description: 'Buy 1 bowl, get 1 FREE!',
-  },
-];
-
-type DealItem = {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  image_key: string;
-  restaurant_name: string;
-  restaurant_id: string;
-  category: string;
+type DealItem = DbMenuItem & {
+  restaurantName: string;
+  restaurantId: string;
   bogo_description: string;
   bogo_end: string | null;
-  is_mock: boolean;
 };
 
 export default function DealsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { restaurants, addToCart } = useApp();
-  const [loading, setLoading] = useState(true);
-  const [allDeals, setAllDeals] = useState<DealItem[]>([]);
+  const { restaurants, allMenuItems, loadingAllMenuItems, addToCart } = useApp();
   const [activeFilter, setActiveFilter] = useState('all');
 
-  useEffect(() => {
-    loadDeals();
-  }, []);
-
-  const loadDeals = async () => {
-    setLoading(true);
-    try {
-      // Fetch real BOGO items from DB — only show active ones
-      const { data: realItems } = await fetchAllMenuItems();
-      const realBogo: DealItem[] = (realItems || [])
-        .filter((item: any) => item.is_bogo && isBogoActive(item.bogo_start, item.bogo_end))
-        .map((item: any) => {
-          const rest = restaurants.find(r => r.id === item.restaurant_id);
-          return {
-            id: item.id,
-            name: item.name,
-            description: item.description,
-            price: item.price,
-            image_key: item.image_key,
-            restaurant_name: rest?.name || 'Restaurant',
-            restaurant_id: item.restaurant_id,
-            category: item.category,
-            bogo_description: item.bogo_description || 'Buy 1, Get 1 FREE!',
-            bogo_end: item.bogo_end || null,
-            is_mock: false,
-          };
-        });
-
-      // Combine real BOGO items with mock data
-      const mockDeals: DealItem[] = MOCK_BOGO_ITEMS.map(m => ({
-        ...m,
-        bogo_end: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-        is_mock: true,
-      }));
-
-      setAllDeals([...realBogo, ...mockDeals]);
-    } catch (err) {
-      console.log('Failed to load deals:', err);
-      // Fallback to mock data only
-      setAllDeals(MOCK_BOGO_ITEMS.map(m => ({ ...m, bogo_end: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), is_mock: true })));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const allDeals: DealItem[] = useMemo(() => {
+    return allMenuItems
+      .filter((item: any) => item.is_bogo && isBogoActive(item.bogo_start, item.bogo_end))
+      .map((item: any) => {
+        const rest = restaurants.find(r => r.id === item.restaurant_id);
+        return {
+          ...item,
+          restaurantName: rest?.name || 'Restaurant',
+          restaurantId: item.restaurant_id,
+          bogo_description: item.bogo_description || 'Buy 1, Get 1 FREE!',
+          bogo_end: item.bogo_end || null,
+        };
+      });
+  }, [allMenuItems, restaurants]);
 
   const categories = useMemo(() => {
     const cats = new Set(allDeals.map(d => d.category));
@@ -182,10 +56,6 @@ export default function DealsScreen() {
   };
 
   const handleAddToCart = (item: DealItem) => {
-    if (item.is_mock) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      return;
-    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     addToCart(
       {
@@ -200,8 +70,8 @@ export default function DealsScreen() {
         category: item.category,
         created_at: '',
       },
-      item.restaurant_id,
-      item.restaurant_name
+      item.restaurantId,
+      item.restaurantName
     );
   };
 
@@ -210,9 +80,8 @@ export default function DealsScreen() {
     return (
       <Pressable
         onPress={() => {
-          if (!item.is_mock) {
-            router.push(`/restaurant/${item.restaurant_id}`);
-          }
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          router.push(`/restaurant/${item.restaurantId}`);
         }}
         style={styles.dealCard}
       >
@@ -222,11 +91,6 @@ export default function DealsScreen() {
             <MaterialIcons name="local-offer" size={12} color="#FFF" />
             <Text style={styles.bogoText}>BOGO</Text>
           </View>
-          {item.is_mock ? (
-            <View style={styles.sampleBadge}>
-              <Text style={styles.sampleText}>Sample</Text>
-            </View>
-          ) : null}
         </View>
         <View style={styles.dealInfo}>
           <Text style={styles.dealName} numberOfLines={1}>{item.name}</Text>
@@ -247,9 +111,9 @@ export default function DealsScreen() {
                 <Text style={styles.dealPrice}>{"\u20A6"}{item.price.toLocaleString()}</Text>
                 <Text style={styles.dealFreeLabel}>+ 1 FREE</Text>
               </View>
-              <Text style={styles.dealRestaurant}>{item.restaurant_name}</Text>
+              <Text style={styles.dealRestaurant}>{item.restaurantName}</Text>
             </View>
-            <Pressable onPress={() => handleAddToCart(item)} style={[styles.addDealBtn, item.is_mock && { opacity: 0.5 }]}>
+            <Pressable onPress={() => handleAddToCart(item)} style={styles.addDealBtn}>
               <MaterialIcons name="add" size={20} color="#FFF" />
             </Pressable>
           </View>
@@ -280,21 +144,23 @@ export default function DealsScreen() {
       </View>
 
       {/* Category filter */}
-      <View style={styles.filterRow}>
-        {categories.map(cat => (
-          <Pressable
-            key={cat}
-            onPress={() => { Haptics.selectionAsync(); setActiveFilter(cat); }}
-            style={[styles.filterPill, activeFilter === cat && styles.filterPillActive]}
-          >
-            <Text style={[styles.filterText, activeFilter === cat && styles.filterTextActive]}>
-              {cat === 'all' ? 'All Deals' : cat.charAt(0).toUpperCase() + cat.slice(1)}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      {categories.length > 1 ? (
+        <View style={styles.filterRow}>
+          {categories.map(cat => (
+            <Pressable
+              key={cat}
+              onPress={() => { Haptics.selectionAsync(); setActiveFilter(cat); }}
+              style={[styles.filterPill, activeFilter === cat && styles.filterPillActive]}
+            >
+              <Text style={[styles.filterText, activeFilter === cat && styles.filterTextActive]}>
+                {cat === 'all' ? 'All Deals' : cat.charAt(0).toUpperCase() + cat.slice(1)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
-      {loading ? (
+      {loadingAllMenuItems ? (
         <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 40 }} />
       ) : (
         <FlashList
@@ -309,7 +175,7 @@ export default function DealsScreen() {
             <View style={styles.emptyState}>
               <MaterialIcons name="local-offer" size={48} color={theme.textMuted} />
               <Text style={styles.emptyTitle}>No deals available</Text>
-              <Text style={styles.emptySubtitle}>Check back soon for new offers</Text>
+              <Text style={styles.emptySubtitle}>Restaurants create BOGO offers from their menu. Check back soon for new offers.</Text>
             </View>
           }
         />
@@ -337,8 +203,6 @@ const styles = StyleSheet.create({
   dealImage: { width: '100%', height: '100%' },
   bogoBadge: { position: 'absolute', top: 8, left: 8, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#E65100', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
   bogoText: { fontSize: 11, fontWeight: '800', color: '#FFF' },
-  sampleBadge: { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
-  sampleText: { fontSize: 9, fontWeight: '700', color: '#FFF' },
   dealInfo: { padding: 12 },
   dealName: { fontSize: 14, fontWeight: '700', color: theme.textPrimary },
   dealDesc: { fontSize: 12, color: theme.textSecondary, marginTop: 3, lineHeight: 16 },
@@ -352,7 +216,7 @@ const styles = StyleSheet.create({
   addDealBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center' },
   dealTimerRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: '#FEF3C7' },
   dealTimerText: { fontSize: 11, fontWeight: '700', color: '#D97706' },
-  emptyState: { alignItems: 'center', paddingVertical: 60 },
+  emptyState: { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 32 },
   emptyTitle: { fontSize: 16, fontWeight: '600', color: theme.textPrimary, marginTop: 12 },
-  emptySubtitle: { fontSize: 14, color: theme.textSecondary, marginTop: 4 },
+  emptySubtitle: { fontSize: 14, color: theme.textSecondary, marginTop: 4, textAlign: 'center', lineHeight: 20 },
 });

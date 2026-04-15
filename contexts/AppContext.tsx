@@ -495,6 +495,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addMenuItem = async (item: Omit<DbMenuItem, 'id' | 'created_at'>) => {
+    // Ensure ownerRestaurant exists before trying to add menu items
+    if (!ownerRestaurant && user?.id) {
+      const { data: restData } = await fetchOwnerRestaurant(user.id);
+      if (restData) setOwnerRestaurant(restData);
+    }
     const { data } = await insertMenuItem(item);
     if (data) setRestaurantMenuItems(prev => [data, ...prev]);
   };
