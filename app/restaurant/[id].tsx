@@ -11,7 +11,7 @@ import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
 import { getImage } from '../../constants/images';
 import { DbMenuItem, DbRestaurant, DbReview, fetchRestaurantById, fetchMenuItems, fetchRestaurantReviews, fetchUserProfile, fetchCustomerOrders, fetchReviewByOrderId } from '../../services/supabaseData';
-import { getCuisineColor, parseCuisines } from '../../constants/config';
+import { getCuisineColor, parseCuisines, calculateDeliveryFee } from '../../constants/config';
 import { useRestaurantHours } from '../../hooks/useRestaurantHours';
 import { useAuth } from '@/template';
 import { scheduleRestaurantReminder, cancelRestaurantReminder } from '../../services/notificationScheduler';
@@ -397,7 +397,11 @@ export default function RestaurantDetailScreen() {
           <View style={styles.infoDivider} />
           <View style={styles.infoItem}>
             <MaterialIcons name="delivery-dining" size={18} color={theme.textMuted} />
-            <Text style={styles.infoValue}>{"\u20A6"}{restaurant.delivery_fee.toLocaleString()}</Text>
+            <Text style={styles.infoValue}>
+              {distanceKm !== null
+                ? `\u20A6${calculateDeliveryFee(distanceKm).toLocaleString()}`
+                : `\u20A6${restaurant.delivery_fee.toLocaleString()}`}
+            </Text>
           </View>
           {distanceLabel ? (
             <>

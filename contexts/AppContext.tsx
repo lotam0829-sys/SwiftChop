@@ -15,6 +15,7 @@ import {
   fetchFavorites, addFavorite as addFavoriteDb, removeFavorite as removeFavoriteDb,
   hideOrdersForCustomer,
   hideOrdersForRestaurant,
+  confirmOrderPayment as confirmOrderPaymentDb,
 } from '../services/supabaseData';
 import { notifyShipdayReadyForPickup } from '../services/shipdayReadyPickup';
 import { foodCategories } from '../services/mockData';
@@ -304,11 +305,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const cartTotal = cart.reduce((sum, ci) => sum + ci.menuItem.price * ci.quantity, 0);
   const cartCount = cart.reduce((sum, ci) => sum + ci.quantity, 0);
 
+  // Filter out awaiting_payment orders from visible customer orders
   const refreshCustomerOrders = async () => {
     if (!user?.id) return;
     setLoadingOrders(true);
     const { data } = await fetchCustomerOrders(user.id);
-    setCustomerOrders(data);
+    // Only show orders that have been paid (exclude awaiting_payment)
+    setCustomerOrders(data.filter(o => o.status !== 'awaiting_payment'));
     setLoadingOrders(false);
   };
 
@@ -345,7 +348,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         delivery_fee: finalDeliveryFee,
         service_fee: serviceFee,
         total,
-        status: 'pending',
+        status: 'awaiting_payment',
         delivery_address: deliveryAddress,
         delivery_note: note,
         payment_method: paymentMethod || 'card',
@@ -378,9 +381,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       setCustomerOrders(prev => [orderWithItems, ...prev]);
 
-      // NOTE: Shipday dispatch is NOT triggered here.
-      // It will be triggered when the restaurant ACCEPTS the order (status → confirmed).
-      // See updateOrderStatus below.
+      // NOTE: Order is created with 'awaiting_payment' status.
+      // It transitions to 'pending' only after payment confirmation.
+      // Shipday dispatch is triggered when restaurant ACCEPTS (status → confirmed).
 
       return orderWithItems;
     }
@@ -388,6 +391,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return null;
   };
 
+  // Restaurant orders also filter out awaiting_payment
   const refreshRestaurantData = async () => {
     if (!user?.id) return;
     setLoadingRestaurantData(true);
@@ -399,7 +403,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         fetchRestaurantOrders(restData.id),
         fetchMenuItems(restData.id),
       ]);
-      setRestaurantOrders(ordersResult.data);
+      setRestaurantOrders(ordersResult.data.filter(o => o.status !== 'awaiting_payment'));
       setRestaurantMenuItems(menuResult.data);
     }
     setLoadingRestaurantData(false);

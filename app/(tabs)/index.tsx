@@ -12,7 +12,7 @@ import { useApp } from '../../contexts/AppContext';
 import { foodCategories } from '../../services/mockData';
 import { getImage } from '../../constants/images';
 import { DbRestaurant } from '../../services/supabaseData';
-import { getCuisineColor, parseCuisines } from '../../constants/config';
+import { getCuisineColor, parseCuisines, calculateDeliveryFee } from '../../constants/config';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -336,6 +336,12 @@ export default function HomeScreen() {
                             return <View key={ci} style={[styles.cuisinePill, { backgroundColor: cc.bg }]}><Text style={[styles.cuisinePillText, { color: cc.text }]}>{c}</Text></View>;
                           })}
                         </View>
+                        {r.address ? (
+                          <View style={styles.addressRow}>
+                            <MaterialIcons name="location-on" size={13} color={theme.textMuted} />
+                            <Text style={styles.addressText} numberOfLines={1}>{r.address}</Text>
+                          </View>
+                        ) : null}
                         <View style={styles.restaurantMeta}>
                           {delivTime ? (
                             <>
@@ -345,7 +351,11 @@ export default function HomeScreen() {
                             </>
                           ) : null}
                           <MaterialIcons name="delivery-dining" size={14} color={theme.textMuted} />
-                          <Text style={styles.metaText}>{"\u20A6"}{r.delivery_fee.toLocaleString()}</Text>
+                          <Text style={styles.metaText}>
+                            {getRestaurantDistance(r) !== null
+                              ? `\u20A6${calculateDeliveryFee(getRestaurantDistance(r)).toLocaleString()}`
+                              : `\u20A6${r.delivery_fee.toLocaleString()}`}
+                          </Text>
                           {dist ? (
                             <>
                               <View style={styles.metaDot} />
@@ -455,8 +465,9 @@ const styles = StyleSheet.create({
   restaurantName: { fontSize: 16, fontWeight: '700', color: theme.textPrimary, flex: 1, marginRight: 8 },
   ratingBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#FFF9E6', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   ratingText: { fontSize: 13, fontWeight: '700', color: '#92400E' },
-  restaurantCuisine: { fontSize: 13, color: theme.textSecondary, marginTop: 4 },
-  restaurantMeta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 },
+  addressRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  addressText: { fontSize: 12, color: theme.textMuted, flex: 1 },
+  restaurantMeta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
   metaText: { fontSize: 12, color: theme.textMuted },
   metaDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: theme.textMuted },
   emptyState: { alignItems: 'center', paddingVertical: 48 },

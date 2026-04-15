@@ -272,9 +272,10 @@ export async function createOrder(order: {
   customer_name?: string;
   customer_phone?: string;
 }, items: { menu_item_id?: string; name: string; quantity: number; price: number }[]): Promise<{ data: DbOrder | null; error: string | null }> {
+  // Create order with status 'awaiting_payment' — only transitions to 'pending' after payment
   const { data: orderData, error: orderError } = await supabase
     .from('orders')
-    .insert(order)
+    .insert({ ...order, status: 'awaiting_payment' })
     .select()
     .single();
   if (orderError) return { data: null, error: orderError.message };
@@ -288,6 +289,26 @@ export async function createOrder(order: {
   }
 
   return { data: orderData, error: null };
+}
+
+/** Confirm payment — transitions order from awaiting_payment to pending */
+export async function confirmOrderPayment(orderId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('orders')
+    .update({ status: 'pending', updated_at: new Date().toISOString() })
+    .eq('id', orderId)
+    .eq('status', 'awaiting_payment');
+  return { error: error?.message || null };
+}
+
+/** Cancel unpaid order — sets order to cancelled if still awaiting_payment */
+export async function cancelUnpaidOrder(orderId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('orders')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', orderId)
+    .eq('status', 'awaiting_payment');
+  return { error: error?.message || null };
 }
 
 export async function updateOrderStatus(orderId: string, status: string): Promise<{ error: string | null }> {
@@ -371,15 +392,61 @@ export async function fetchOwnerRestaurant(ownerId: string): Promise<{ data: DbR
   return { data, error: null };
 }
 
-export async function createRestaurantForOwner(ownerId: string, name: string): Promise<{ data: DbRestaurant | null; error: string | null }> {
+export async function createRestaurantForOwner(
+  ownerId: string,
+  name: string,
+  extras?: {
+    cuisine?: string;
+    description?: string;
+    address?: string;
+    phone?: string;
+    min_order?: number;
+    delivery_time?: string;
+    latitude?: number;
+    longitude?: number;
+  }
+): Promise<{ data: DbRestaurant | null; error: string | null }> {
+  // Check if restaurant already exists for this owner
+  const { data: existing } = await supabase
+    .from('restaurants')
+    .select('id')
+    .eq('owner_id', ownerId)
+    .maybeSingle();
+  if (existing) {
+    // Update existing restaurant instead of creating duplicate
+    const { data: updated, error: updateErr } = await supabase
+      .from('restaurants')
+      .update({
+        name,
+        cuisine: extras?.cuisine || 'Nigerian',
+        description: extras?.description || `Welcome to ${name}`,
+        address: extras?.address || undefined,
+        phone: extras?.phone || undefined,
+        min_order: extras?.min_order || undefined,
+        delivery_time: extras?.delivery_time || undefined,
+        latitude: extras?.latitude || undefined,
+        longitude: extras?.longitude || undefined,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+      .select()
+      .single();
+    if (updateErr) return { data: null, error: updateErr.message };
+    return { data: updated, error: null };
+  }
   const { data, error } = await supabase
     .from('restaurants')
     .insert({
       owner_id: ownerId,
       name,
-      cuisine: 'Nigerian',
-      description: `Welcome to ${name}`,
-      address: 'Lagos, Nigeria',
+      cuisine: extras?.cuisine || 'Nigerian',
+      description: extras?.description || `Welcome to ${name}`,
+      address: extras?.address || 'Lagos, Nigeria',
+      phone: extras?.phone || null,
+      min_order: extras?.min_order || 2000,
+      delivery_time: extras?.delivery_time || '25-35 min',
+      latitude: extras?.latitude || null,
+      longitude: extras?.longitude || null,
     })
     .select()
     .single();

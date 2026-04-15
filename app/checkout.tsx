@@ -10,7 +10,7 @@ import { theme } from '../constants/theme';
 import { config, calculateDeliveryFee, deliveryPricing } from '../constants/config';
 import { useApp } from '../contexts/AppContext';
 import { useAuth, useAlert } from '@/template';
-import { initializePaystackPayment } from '../services/supabaseData';
+import { initializePaystackPayment, confirmOrderPayment, cancelUnpaidOrder } from '../services/supabaseData';
 import PrimaryButton from '../components/ui/PrimaryButton';
 import { useRestaurantHours } from '../hooks/useRestaurantHours';
 
@@ -149,10 +149,9 @@ export default function CheckoutScreen() {
 
     if (paystackError || !paystackData) {
       setLoading(false);
-      showAlert('Payment Error', paystackError || 'Could not initialize payment. Your order has been created.');
-      // Still route to tracking since order was created
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace({ pathname: '/order-tracking', params: { orderId: order.id } });
+      // Cancel the awaiting_payment order since payment could not be initialized
+      await cancelUnpaidOrder(order.id);
+      showAlert('Payment Error', paystackError || 'Could not initialize payment. Please try again.');
       return;
     }
 
@@ -162,22 +161,27 @@ export default function CheckoutScreen() {
     setLoading(false);
   };
 
-  const handlePaystackWebViewChange = (navState: any) => {
+  const handlePaystackWebViewChange = async (navState: any) => {
     const url = navState.url || '';
     // Detect callback URL (payment completed)
-    if (url.includes('swiftchop.app/payment/callback') || url.includes('paystack.co/close')) {
+    if (url.includes('swiftchop.app/payment/callback') || url.includes('callback')) {
       setPaystackUrl(null);
       if (pendingOrderId) {
+        // Confirm payment — transition order from awaiting_payment to pending
+        await confirmOrderPayment(pendingOrderId);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         router.replace({ pathname: '/order-tracking', params: { orderId: pendingOrderId } });
       }
+      return;
     }
-    // Detect payment cancellation
-    if (url.includes('paystack.co/close') || url.includes('cancel')) {
+    // Detect payment cancellation / close
+    if (url.includes('paystack.co/close') || url.includes('/cancel')) {
       setPaystackUrl(null);
       if (pendingOrderId) {
-        showAlert('Payment Cancelled', 'Your order has been created. You can retry payment from your orders page.');
-        router.replace({ pathname: '/order-tracking', params: { orderId: pendingOrderId } });
+        // Cancel the unpaid order so it does not proceed
+        await cancelUnpaidOrder(pendingOrderId);
+        showAlert('Payment Cancelled', 'Your order has been cancelled. No charge was made.');
+        router.replace('/(tabs)/orders');
       }
     }
   };
@@ -187,10 +191,13 @@ export default function CheckoutScreen() {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Pressable onPress={() => {
+          <Pressable onPress={async () => {
             setPaystackUrl(null);
             if (pendingOrderId) {
-              router.replace({ pathname: '/order-tracking', params: { orderId: pendingOrderId } });
+              // User closed payment WebView without completing — cancel order
+              await cancelUnpaidOrder(pendingOrderId);
+              showAlert('Payment Cancelled', 'Your order has been cancelled. No charge was made.');
+              router.replace('/(tabs)/orders');
             }
           }} style={styles.backBtn}>
             <MaterialIcons name="close" size={22} color={theme.textPrimary} />

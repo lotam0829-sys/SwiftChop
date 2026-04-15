@@ -376,7 +376,14 @@ export default function OnboardingScreen() {
         bank_account_name: bankAccountName.trim(),
       } as any);
 
-      await createRestaurantForOwner(user.id, restaurantName.trim());
+      await createRestaurantForOwner(user.id, restaurantName.trim(), {
+        cuisine: restaurantCuisine.trim() || 'Nigerian',
+        description: restaurantDescription.trim() || `Welcome to ${restaurantName.trim()}`,
+        address: restaurantAddress.trim(),
+        phone: restaurantPhone.trim(),
+        min_order: parseInt(minOrder) || 2000,
+        delivery_time: deliveryTime.trim() || '25-35 min',
+      });
       await refreshProfile();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/pending-approval');
@@ -486,8 +493,9 @@ export default function OnboardingScreen() {
           bankAccountNumber.trim()
         );
         if (subError) {
-          console.log('Paystack subaccount creation note:', subError);
-          // Non-blocking: rider can still complete onboarding, subaccount can be created later
+          console.log('Paystack subaccount creation failed:', subError);
+          // Store the failure so it can be retried later
+          showAlert('Note', `Account created but payout setup needs attention. You can complete this later from your profile. Details: ${subError}`);
         } else if (subData?.subaccount_code) {
           console.log('Rider Paystack subaccount created:', subData.subaccount_code);
         }
