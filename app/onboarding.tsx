@@ -85,6 +85,13 @@ const riderSlides = [
 
 type OnboardingPhase = 'slides' | 'location' | 'fees_acknowledgment' | 'card' | 'restaurant_details' | 'bank_details' | 'commission_agreement' | 'certificate' | 'rider_details' | 'rider_id' | 'rider_bank';
 
+// Test account emails — onboarding fields are prefilled ONLY for these accounts
+const TEST_ACCOUNT_EMAILS = [
+  'testcustomer@swiftchop.app',
+  'testreview-restaurant@swiftchop.app',
+  'testreview-rider@swiftchop.app',
+];
+
 const vehicleTypes = [
   { key: 'motorcycle', label: 'Dispatch Bike', icon: 'two-wheeler' },
   { key: 'tricycle', label: 'Tricycle', icon: 'electric-rickshaw' },
@@ -152,6 +159,52 @@ export default function OnboardingScreen() {
   const [idNumber, setIdNumber] = useState('');
   const [idDocumentFile, setIdDocumentFile] = useState<{ name: string; uri: string } | null>(null);
   const [profilePhoto, setProfilePhoto] = useState<{ uri: string } | null>(null);
+
+  // Detect test account for prefilled onboarding
+  const isTestAccount = !!user?.email && TEST_ACCOUNT_EMAILS.includes(user.email);
+
+  // Prefill form fields for test accounts so App Reviewers can breeze through onboarding
+  useEffect(() => {
+    if (!user?.email || !isTestAccount) return;
+
+    if (user.email === 'testcustomer@swiftchop.app') {
+      setCardNumber('4084 0840 8408 4081');
+      setCardExpiry('12/28');
+      setCardCVV('408');
+      setCardName('TEST CUSTOMER');
+    }
+
+    if (user.email === 'testreview-restaurant@swiftchop.app') {
+      setRestaurantName('SwiftChop Test Kitchen');
+      setRestaurantAddress('45 Lekki Phase 1, Lagos');
+      setRestaurantCuisine('Nigerian');
+      setRestaurantDescription('Official SwiftChop test restaurant for App Review');
+      setRestaurantPhone('+234 801 000 0002');
+      setRestaurantEmail('testreview-restaurant@swiftchop.app');
+      setMinOrder('2000');
+      setDeliveryTime('25-35 min');
+      setBankName('Guaranty Trust Bank');
+      setSelectedBankCode('058');
+      setBankAccountNumber('0123456789');
+      setBankAccountName('SWIFTCHOP TEST KITCHEN');
+      setBankVerified(true);
+      setCommissionAgreed(true);
+    }
+
+    if (user.email === 'testreview-rider@swiftchop.app') {
+      setRiderName('Test Rider');
+      setRiderPhone('+234 801 000 0003');
+      setRiderEmail('testreview-rider@swiftchop.app');
+      setVehicleType('motorcycle');
+      setIdType('nin');
+      setIdNumber('12345678901');
+      setBankName('Guaranty Trust Bank');
+      setSelectedBankCode('058');
+      setBankAccountNumber('0987654321');
+      setBankAccountName('TEST RIDER');
+      setBankVerified(true);
+    }
+  }, [user?.email]);
 
   const [dimensions, setDimensions] = useState({ width: 375, height: 667 });
   useEffect(() => {
@@ -259,7 +312,9 @@ export default function OnboardingScreen() {
   };
 
   // Auto-verify bank when account number is 10 digits and bank is selected
+  // Skip real Paystack verification for test accounts (already pre-verified)
   useEffect(() => {
+    if (isTestAccount && bankVerified && bankAccountName) return;
     if (bankAccountNumber.length === 10 && selectedBankCode) {
       handleVerifyBank();
     } else {
@@ -327,7 +382,7 @@ export default function OnboardingScreen() {
   };
 
   const handleRestaurantComplete = async () => {
-    if (!certificateFile) {
+    if (!certificateFile && !isTestAccount) {
       showAlert('Required', 'Please upload your Business Registration Certificate (CAC) before continuing.');
       return;
     }
@@ -336,10 +391,15 @@ export default function OnboardingScreen() {
     setLoading(true);
     try {
       let certificateUrl: string | null = null;
-      setUploadingCert(true);
 
       const supabase = getSupabaseClient();
       const filePath = `${user.id}/business-certificate.pdf`;
+
+      // Test accounts skip real file upload
+      if (isTestAccount && !certificateFile) {
+        certificateUrl = 'test-account/mock-certificate.pdf';
+      } else {
+      setUploadingCert(true);
 
       const response = await fetch(certificateFile.uri);
       const blob = await response.blob();
@@ -358,6 +418,7 @@ export default function OnboardingScreen() {
 
       certificateUrl = filePath;
       setUploadingCert(false);
+      } // end of real upload block
 
       await updateUserProfile(user.id, {
         role: 'restaurant',
@@ -438,7 +499,7 @@ export default function OnboardingScreen() {
 
   const handleRiderIdNext = () => {
     if (!idNumber.trim()) { showAlert('Required', 'Please enter your ID number'); return; }
-    if (!idDocumentFile) { showAlert('Required', 'Please upload a photo of your ID document'); return; }
+    if (!idDocumentFile && !isTestAccount) { showAlert('Required', 'Please upload a photo of your ID document'); return; }
     setPhase('rider_bank');
   };
 
@@ -448,7 +509,7 @@ export default function OnboardingScreen() {
     try {
       const supabase = getSupabaseClient();
 
-      // Upload ID document
+      // Upload ID document (skip for test accounts without a file)
       if (idDocumentFile) {
         const idResp = await fetch(idDocumentFile.uri);
         const idBlob = await idResp.blob();
@@ -550,6 +611,13 @@ export default function OnboardingScreen() {
             <Text style={styles.formSubtitle}>Add your bank account for receiving payments. All fields are required.</Text>
           </View>
 
+          {isTestAccount ? (
+            <View style={styles.testBanner}>
+              <MaterialIcons name="science" size={16} color="#6D28D9" />
+              <Text style={styles.testBannerText}>Test account — fields are prefilled for App Review</Text>
+            </View>
+          ) : null}
+
           {stepIndicator}
 
           <View style={styles.inputGroup}>
@@ -634,6 +702,13 @@ export default function OnboardingScreen() {
               <Text style={styles.formTitle}>Rider Details</Text>
               <Text style={styles.formSubtitle}>Tell us about yourself so we can get you set up and earning.</Text>
             </View>
+
+            {isTestAccount ? (
+              <View style={styles.testBanner}>
+                <MaterialIcons name="science" size={16} color="#6D28D9" />
+                <Text style={styles.testBannerText}>Test account — fields are prefilled for App Review</Text>
+              </View>
+            ) : null}
 
             <View style={styles.stepRow}>
               <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>1. Details</Text></View>
@@ -906,6 +981,13 @@ export default function OnboardingScreen() {
               <Text style={styles.formSubtitle}>Add a debit or credit card for fast, seamless checkout. Your card is stored securely and encrypted by Paystack.</Text>
             </View>
 
+            {isTestAccount ? (
+              <View style={styles.testBanner}>
+                <MaterialIcons name="science" size={16} color="#6D28D9" />
+                <Text style={styles.testBannerText}>Test account — fields are prefilled for App Review</Text>
+              </View>
+            ) : null}
+
             <View style={styles.cardPreview}>
               <LinearGradient colors={['#1A1A2E', '#16213E']} style={styles.cardGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
                 <View style={styles.cardTopRow}><MaterialIcons name="credit-card" size={28} color="rgba(255,255,255,0.8)" /><MaterialIcons name="contactless" size={24} color="rgba(255,255,255,0.6)" /></View>
@@ -972,6 +1054,13 @@ export default function OnboardingScreen() {
               <Text style={styles.formTitle}>Restaurant Details</Text>
               <Text style={styles.formSubtitle}>Complete your profile to start receiving orders.</Text>
             </View>
+
+            {isTestAccount ? (
+              <View style={styles.testBanner}>
+                <MaterialIcons name="science" size={16} color="#6D28D9" />
+                <Text style={styles.testBannerText}>Test account — fields are prefilled for App Review</Text>
+              </View>
+            ) : null}
 
             <View style={styles.stepRow}>
               <View style={[styles.stepPill, styles.stepPillActive]}><Text style={styles.stepPillText}>1. Details</Text></View>
@@ -1247,6 +1336,8 @@ const styles = StyleSheet.create({
   vehicleOption: { flex: 1, minWidth: '45%', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 16, borderRadius: 14, backgroundColor: theme.backgroundSecondary, borderWidth: 1.5, borderColor: theme.border },
   vehicleOptionActive: { backgroundColor: '#059669', borderColor: '#059669' },
   vehicleLabel: { fontSize: 13, fontWeight: '600', color: theme.textSecondary },
+  testBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, padding: 12, borderRadius: 12, backgroundColor: '#F5F3FF', borderWidth: 1, borderColor: '#DDD6FE' },
+  testBannerText: { flex: 1, fontSize: 12, fontWeight: '600', color: '#6D28D9' },
   idTypeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.backgroundSecondary, borderWidth: 1.5, borderColor: theme.border },
   idTypeBtnActive: { backgroundColor: theme.primary, borderColor: theme.primary },
   idTypeBtnText: { fontSize: 14, fontWeight: '600', color: theme.textSecondary },
