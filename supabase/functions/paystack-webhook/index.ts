@@ -4,7 +4,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 /**
  * Paystack Webhook Edge Function
  * 
- * Listens for Paystack transfer events:
+ * Listens for Paystack events:
+ * - charge.success: Confirm order payment, capture card authorization for saved cards
  * - transfer.success: Update rider_payments status to 'completed'
  * - transfer.failed: Update rider_payments status to 'failed'
  * - transfer.reversed: Update rider_payments status to 'failed'
@@ -36,11 +37,95 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Handle transfer events
+    // ==================== CHARGE SUCCESS ====================
+    // Confirm order payment + capture card authorization for saved cards
+    if (event === 'charge.success') {
+      console.log('Charge success received:', data.reference, 'Status:', data.status);
+
+      const orderId = data.metadata?.order_id;
+      const authorization = data.authorization;
+      const customerEmail = data.customer?.email;
+
+      // 1. Confirm order payment (transition awaiting_payment -> pending)
+      if (orderId) {
+        const { error: confirmErr } = await supabaseAdmin
+          .from('orders')
+          .update({ status: 'pending', updated_at: new Date().toISOString() })
+          .eq('id', orderId)
+          .eq('status', 'awaiting_payment');
+
+        if (confirmErr) {
+          console.error('Failed to confirm order payment:', confirmErr.message);
+        } else {
+          console.log('Order confirmed via webhook:', orderId);
+        }
+      }
+
+      // 2. Capture card authorization for saved cards
+      if (authorization && authorization.reusable && customerEmail) {
+        const cardData = {
+          authorization_code: authorization.authorization_code,
+          card_type: authorization.card_type || 'unknown',
+          last4: authorization.last4 || '****',
+          exp_month: authorization.exp_month || '',
+          exp_year: authorization.exp_year || '',
+          bank: authorization.bank || 'Unknown Bank',
+          brand: authorization.brand || authorization.card_type || 'Card',
+          signature: authorization.signature || '',
+          channel: authorization.channel || 'card',
+          saved_at: new Date().toISOString(),
+        };
+
+        console.log('Capturing reusable card:', cardData.brand, cardData.last4, 'for', customerEmail);
+
+        // Find user by email
+        const { data: users, error: userErr } = await supabaseAdmin
+          .from('user_profiles')
+          .select('id, saved_cards')
+          .eq('email', customerEmail)
+          .limit(1);
+
+        if (!userErr && users && users.length > 0) {
+          const user = users[0];
+          const existingCards = Array.isArray(user.saved_cards) ? user.saved_cards : [];
+
+          // Check if this card (by signature or last4+brand) is already saved
+          const isDuplicate = existingCards.some((c: any) =>
+            (c.signature && c.signature === cardData.signature) ||
+            (c.last4 === cardData.last4 && c.brand === cardData.brand && c.exp_month === cardData.exp_month && c.exp_year === cardData.exp_year)
+          );
+
+          if (!isDuplicate) {
+            const updatedCards = [...existingCards, cardData];
+            const { error: saveErr } = await supabaseAdmin
+              .from('user_profiles')
+              .update({ saved_cards: updatedCards })
+              .eq('id', user.id);
+
+            if (saveErr) {
+              console.error('Failed to save card:', saveErr.message);
+            } else {
+              console.log('Card saved for user:', user.id, cardData.brand, cardData.last4);
+            }
+          } else {
+            console.log('Card already saved (duplicate), skipping:', cardData.last4);
+          }
+        } else {
+          console.log('User not found for email:', customerEmail, userErr?.message);
+        }
+      }
+
+      return new Response(
+        JSON.stringify({ received: true, order_id: orderId }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ==================== TRANSFER EVENTS ====================
     if (event === 'transfer.success' || event === 'transfer.failed' || event === 'transfer.reversed') {
       const transferCode = data.transfer_code;
       const reference = data.reference;
-      const amount = data.amount ? Math.round(data.amount / 100) : 0; // Convert kobo to naira
+      const amount = data.amount ? Math.round(data.amount / 100) : 0;
 
       if (!transferCode && !reference) {
         console.log('No transfer_code or reference found in webhook');
@@ -50,11 +135,9 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      // Determine new status
       const newStatus = event === 'transfer.success' ? 'completed' : 'failed';
       console.log(`Transfer ${event}: code=${transferCode}, ref=${reference}, amount=${amount}, new_status=${newStatus}`);
 
-      // Find the payment record
       let query = supabaseAdmin
         .from('rider_payments')
         .select('id, rider_id, amount, payment_type, status')
@@ -70,7 +153,6 @@ Deno.serve(async (req: Request) => {
 
       if (findErr || !payments || payments.length === 0) {
         console.log(`Payment record not found for transfer_code=${transferCode}, reference=${reference}`);
-        // Still return 200 so Paystack doesn't retry
         return new Response(JSON.stringify({ received: true, matched: false }), {
           status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -79,7 +161,6 @@ Deno.serve(async (req: Request) => {
 
       const payment = payments[0];
 
-      // Don't downgrade a 'completed' status
       if (payment.status === 'completed' && newStatus !== 'completed') {
         console.log(`Skipping status downgrade: ${payment.status} -> ${newStatus}`);
         return new Response(JSON.stringify({ received: true, skipped: true }), {
@@ -88,7 +169,6 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      // Update the payment status
       const { error: updateErr } = await supabaseAdmin
         .from('rider_payments')
         .update({ 
@@ -154,16 +234,6 @@ Deno.serve(async (req: Request) => {
         JSON.stringify({ received: true, payment_id: payment.id, new_status: newStatus }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
-    }
-
-    // Handle charge.success for payment verification (future use)
-    if (event === 'charge.success') {
-      console.log('Charge success received:', data.reference);
-      // Can be used to verify order payments
-      return new Response(JSON.stringify({ received: true }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
     }
 
     // Unknown event - still acknowledge

@@ -102,8 +102,12 @@ export default function HomeScreen() {
 
   const featured = sortedRestaurants.filter(r => r.is_featured);
   const filtered = activeCategory === 'all'
-    ? sortedRestaurants.filter(r => r.is_open)
-    : sortedRestaurants.filter(r => r.is_open);
+    ? sortedRestaurants
+    : sortedRestaurants.filter(r => {
+      const cuisines = r.cuisine?.toLowerCase() || '';
+      const catName = foodCategories.find(c => c.id === activeCategory)?.name?.toLowerCase() || activeCategory;
+      return cuisines.includes(catName) || cuisines.includes(activeCategory);
+    });
 
   // Get closing info for a restaurant (non-hook utility)
   const getClosingInfo = useCallback((r: DbRestaurant) => {

@@ -77,6 +77,19 @@ export interface DbOrderItem {
   price: number;
 }
 
+export interface SavedCard {
+  authorization_code: string;
+  card_type: string;
+  last4: string;
+  exp_month: string;
+  exp_year: string;
+  bank: string;
+  brand: string;
+  signature: string;
+  channel: string;
+  saved_at: string;
+}
+
 export interface DbUserProfile {
   id: string;
   email: string;
@@ -88,6 +101,7 @@ export interface DbUserProfile {
   restaurant_name: string | null;
   avatar_url: string | null;
   push_token?: string | null;
+  saved_cards?: SavedCard[];
 }
 
 export interface DbReview {
@@ -378,6 +392,60 @@ export async function savePushToken(userId: string, token: string): Promise<{ er
     .update({ push_token: token })
     .eq('id', userId);
   return { error: error?.message || null };
+}
+
+// ---- Saved Cards ----
+
+export async function fetchSavedCards(userId: string): Promise<{ data: SavedCard[]; error: string | null }> {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('saved_cards')
+    .eq('id', userId)
+    .single();
+  if (error) return { data: [], error: error.message };
+  return { data: Array.isArray(data?.saved_cards) ? data.saved_cards : [], error: null };
+}
+
+export async function removeSavedCard(userId: string, signature: string): Promise<{ error: string | null }> {
+  const { data, error: fetchErr } = await supabase
+    .from('user_profiles')
+    .select('saved_cards')
+    .eq('id', userId)
+    .single();
+  if (fetchErr) return { error: fetchErr.message };
+  const cards = Array.isArray(data?.saved_cards) ? data.saved_cards : [];
+  const updated = cards.filter((c: any) => c.signature !== signature);
+  const { error } = await supabase
+    .from('user_profiles')
+    .update({ saved_cards: updated })
+    .eq('id', userId);
+  return { error: error?.message || null };
+}
+
+export async function chargeSavedCard(
+  authorizationCode: string,
+  email: string,
+  amount: number,
+  orderId: string,
+  metadata?: Record<string, any>
+): Promise<{ data: { success: boolean; reference: string } | null; error: string | null }> {
+  const { data, error } = await supabase.functions.invoke('paystack-charge-saved-card', {
+    body: { authorization_code: authorizationCode, email, amount, order_id: orderId, metadata },
+  });
+  if (error) {
+    let errorMessage = error.message;
+    if (error instanceof FunctionsHttpError) {
+      try {
+        const textContent = await error.context?.text();
+        const parsed = JSON.parse(textContent || '{}');
+        errorMessage = parsed.error || textContent || error.message;
+      } catch {
+        errorMessage = error.message || 'Charge failed';
+      }
+    }
+    return { data: null, error: errorMessage };
+  }
+  return { data, error: null };
 }
 
 // ---- Restaurant for owner ----

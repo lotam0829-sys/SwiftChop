@@ -10,7 +10,7 @@ import { theme } from '../constants/theme';
 import { config, calculateDeliveryFee, deliveryPricing } from '../constants/config';
 import { useApp } from '../contexts/AppContext';
 import { useAuth, useAlert } from '@/template';
-import { initializePaystackPayment, confirmOrderPayment, cancelUnpaidOrder } from '../services/supabaseData';
+import { initializePaystackPayment, confirmOrderPayment, cancelUnpaidOrder, fetchSavedCards, chargeSavedCard, SavedCard } from '../services/supabaseData';
 import PrimaryButton from '../components/ui/PrimaryButton';
 import { useRestaurantHours } from '../hooks/useRestaurantHours';
 
@@ -35,8 +35,28 @@ export default function CheckoutScreen() {
   const [paystackUrl, setPaystackUrl] = useState<string | null>(null);
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
 
+  // Saved cards state
+  const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
+  const [selectedCard, setSelectedCard] = useState<SavedCard | null>(null);
+  const [loadingCards, setLoadingCards] = useState(false);
+  const [paymentMode, setPaymentMode] = useState<'new' | 'saved'>('new');
+
   // Scheduled order info
   const scheduledTime = params.scheduledTime || null;
+
+  // Load saved cards
+  useEffect(() => {
+    if (!user?.id) return;
+    setLoadingCards(true);
+    fetchSavedCards(user.id).then(({ data }) => {
+      setSavedCards(data);
+      if (data.length > 0) {
+        setSelectedCard(data[0]);
+        setPaymentMode('saved');
+      }
+      setLoadingCards(false);
+    });
+  }, [user?.id]);
 
   // Get restaurant info for pickup address
   const restaurant = cart.length > 0 ? restaurants.find(r => r.id === cart[0].restaurantId) : null;
@@ -134,8 +154,37 @@ export default function CheckoutScreen() {
       return;
     }
 
-    // Initialize Paystack payment
     const customerEmail = user?.email || userProfile?.email || '';
+
+    // === SAVED CARD: One-tap charge ===
+    if (paymentMode === 'saved' && selectedCard) {
+      const { data: chargeData, error: chargeError } = await chargeSavedCard(
+        selectedCard.authorization_code,
+        customerEmail,
+        total,
+        order.id,
+        {
+          customer_name: userProfile?.username || 'Customer',
+          restaurant_name: restaurant?.name || cart[0]?.restaurantName,
+          order_type: orderType,
+        }
+      );
+
+      if (chargeError || !chargeData?.success) {
+        setLoading(false);
+        await cancelUnpaidOrder(order.id);
+        showAlert('Payment Failed', chargeError || 'Could not charge your saved card. Please try a new payment method.');
+        return;
+      }
+
+      // Payment successful — order is confirmed
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setLoading(false);
+      router.replace({ pathname: '/order-tracking', params: { orderId: order.id } });
+      return;
+    }
+
+    // === NEW CARD: Paystack WebView ===
     const { data: paystackData, error: paystackError } = await initializePaystackPayment(
       customerEmail,
       total,
@@ -150,7 +199,6 @@ export default function CheckoutScreen() {
 
     if (paystackError || !paystackData) {
       setLoading(false);
-      // Cancel the awaiting_payment order since payment could not be initialized
       await cancelUnpaidOrder(order.id);
       showAlert('Payment Error', paystackError || 'Could not initialize payment. Please try again.');
       return;
@@ -316,22 +364,70 @@ export default function CheckoutScreen() {
               <MaterialIcons name="payment" size={20} color={theme.primary} />
               <Text style={styles.sectionTitle}>Payment Method</Text>
             </View>
-            <View style={[styles.paymentOption, styles.paymentOptionActive]}>
-              <View style={[styles.paymentIcon, { backgroundColor: '#E8F5E9' }]}>
-                <MaterialIcons name="credit-card" size={22} color="#2E7D32" />
+
+            {/* Saved cards */}
+            {savedCards.length > 0 ? (
+              <>
+                {savedCards.map((card, idx) => (
+                  <Pressable
+                    key={card.signature || idx}
+                    onPress={() => { Haptics.selectionAsync(); setPaymentMode('saved'); setSelectedCard(card); }}
+                    style={[styles.paymentOption, paymentMode === 'saved' && selectedCard?.signature === card.signature && styles.paymentOptionActive]}
+                  >
+                    <View style={[styles.paymentIcon, { backgroundColor: '#EBF5FF' }]}>
+                      <MaterialIcons name="credit-card" size={22} color="#2563EB" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.paymentLabel}>{card.brand} {"\u2022\u2022\u2022\u2022"} {card.last4}</Text>
+                      <Text style={styles.paymentSub}>{card.bank} {"\u00B7"} Expires {card.exp_month}/{card.exp_year}</Text>
+                    </View>
+                    <View style={[styles.radio, paymentMode === 'saved' && selectedCard?.signature === card.signature && styles.radioActive]}>
+                      {paymentMode === 'saved' && selectedCard?.signature === card.signature ? <View style={styles.radioInner} /> : null}
+                    </View>
+                  </Pressable>
+                ))}
+                <Pressable
+                  onPress={() => { Haptics.selectionAsync(); setPaymentMode('new'); setSelectedCard(null); }}
+                  style={[styles.paymentOption, paymentMode === 'new' && styles.paymentOptionActive]}
+                >
+                  <View style={[styles.paymentIcon, { backgroundColor: '#E8F5E9' }]}>
+                    <MaterialIcons name="add-card" size={22} color="#2E7D32" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.paymentLabel}>Pay with new card</Text>
+                    <Text style={styles.paymentSub}>Enter new card details via Paystack</Text>
+                  </View>
+                  <View style={[styles.radio, paymentMode === 'new' && styles.radioActive]}>
+                    {paymentMode === 'new' ? <View style={styles.radioInner} /> : null}
+                  </View>
+                </Pressable>
+              </>
+            ) : (
+              <View style={[styles.paymentOption, styles.paymentOptionActive]}>
+                <View style={[styles.paymentIcon, { backgroundColor: '#E8F5E9' }]}>
+                  <MaterialIcons name="credit-card" size={22} color="#2E7D32" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.paymentLabel}>Pay with Card</Text>
+                  <Text style={styles.paymentSub}>Debit or credit card via Paystack</Text>
+                </View>
+                <View style={[styles.radio, styles.radioActive]}>
+                  <View style={styles.radioInner} />
+                </View>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.paymentLabel}>Pay with Card</Text>
-                <Text style={styles.paymentSub}>Debit or credit card via Paystack</Text>
+            )}
+
+            {paymentMode === 'saved' && selectedCard ? (
+              <View style={styles.savedCardInfo}>
+                <MaterialIcons name="flash-on" size={16} color={theme.primary} />
+                <Text style={styles.savedCardInfoText}>One-tap payment — your {selectedCard.brand} card will be charged instantly</Text>
               </View>
-              <View style={[styles.radio, styles.radioActive]}>
-                <View style={styles.radioInner} />
+            ) : (
+              <View style={styles.paystackSecure}>
+                <MaterialIcons name="lock" size={14} color={theme.success} />
+                <Text style={styles.paystackSecureText}>Secured by Paystack. Your card will be saved for future use.</Text>
               </View>
-            </View>
-            <View style={styles.paystackSecure}>
-              <MaterialIcons name="lock" size={14} color={theme.success} />
-              <Text style={styles.paystackSecureText}>Secured by Paystack. Your card details are never stored.</Text>
-            </View>
+            )}
           </View>
 
           {/* Delivery Note */}
@@ -539,6 +635,8 @@ const styles = StyleSheet.create({
   closedWarningText: { fontSize: 12, color: '#991B1B', lineHeight: 17 },
   closingSoonWarning: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 16, padding: 12, borderRadius: 12, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
   closingSoonWarningText: { fontSize: 13, fontWeight: '600', color: '#92400E' },
+  savedCardInfo: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, marginTop: 4 },
+  savedCardInfoText: { flex: 1, fontSize: 12, color: theme.primary, fontWeight: '500' },
   highFeeRecommendation: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginHorizontal: 16, marginBottom: 16, padding: 14, borderRadius: 14, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
   highFeeTitle: { fontSize: 14, fontWeight: '700', color: '#92400E', marginBottom: 4 },
   highFeeText: { fontSize: 12, color: '#A16207', lineHeight: 17 },

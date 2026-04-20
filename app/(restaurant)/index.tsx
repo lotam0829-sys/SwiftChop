@@ -73,12 +73,12 @@ export default function RestaurantDashboard() {
       priority: 4,
     });
 
-    // 5. Menu items
-    const hasMenu = restaurantMenuItems.length >= 3;
+    // 5. Menu items (at least 1 item to be considered done)
+    const hasMenu = restaurantMenuItems.length >= 1;
     items.push({
       key: 'menu',
       label: 'Add menu items',
-      sublabel: restaurantMenuItems.length > 0 ? `${restaurantMenuItems.length} items added` : 'Add at least 3 items to your menu',
+      sublabel: restaurantMenuItems.length > 0 ? `${restaurantMenuItems.length} item${restaurantMenuItems.length !== 1 ? 's' : ''} added` : 'Add items to your menu so customers can order',
       icon: 'restaurant-menu',
       done: hasMenu,
       route: '/(restaurant)/menu',
