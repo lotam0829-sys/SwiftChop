@@ -121,11 +121,7 @@ export default function SignupScreen() {
     const { error } = await signInWithGoogle();
     if (error) {
       setGoogleAuthPending(false);
-      // Don't show alert when user simply cancels/dismisses the OAuth popup
-      const msg = (error || '').toLowerCase();
-      if (!msg.includes('cancel') && !msg.includes('dismiss') && !msg.includes('closed')) {
-        showAlert('Google Sign-In Failed', error);
-      }
+      showAlert('Google Sign-In Failed', error);
     }
   };
 
