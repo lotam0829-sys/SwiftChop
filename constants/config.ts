@@ -11,6 +11,9 @@ export const config = {
   estimatedDelivery: '25-40 min',
   supportEmail: 'support@swiftchop.ng',
   supportPhone: '+234 800 000 0000',
+  // Cash on Delivery toggle — set to true to enable COD as payment option
+  // Currently disabled; do not show in UI until business decision is finalized
+  cashOnDeliveryEnabled: false,
 };
 
 // Distance-based delivery fee pricing

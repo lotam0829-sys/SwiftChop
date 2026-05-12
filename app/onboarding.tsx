@@ -266,31 +266,18 @@ export default function OnboardingScreen() {
 
   const handleFeesAcknowledged = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setPhase('card');
+    // Skip card entry — Paystack hosted checkout handles payment at order time
+    handleCustomerComplete();
   };
 
-  const handleCardComplete = async () => {
-    if (!cardNumber.trim() || cardNumber.replace(/\s/g, '').length < 16) {
-      showAlert('Required', 'Please enter a valid 16-digit card number');
-      return;
-    }
-    if (!cardExpiry.trim() || cardExpiry.length < 5) {
-      showAlert('Required', 'Please enter a valid expiry (MM/YY)');
-      return;
-    }
-    if (!cardCVV.trim() || cardCVV.length < 3) {
-      showAlert('Required', 'Please enter your CVV');
-      return;
-    }
-    if (!cardName.trim()) {
-      showAlert('Required', 'Please enter the cardholder name');
-      return;
-    }
-
+  const handleCustomerComplete = async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
-      await updateUserProfile(user.id, { role: 'customer', is_approved: true } as any);
+      await updateUserProfile(user.id, { 
+        role: 'customer', 
+        is_approved: true,
+      } as any);
       await refreshProfile();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/(tabs)');
@@ -466,31 +453,62 @@ export default function OnboardingScreen() {
     setPhase('rider_id');
   };
 
-  const handlePickIdDocument = async () => {
+  const handlePickIdDocument = async (useCamera = false) => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        quality: 0.8,
-        allowsEditing: false,
-      });
-      if (!result.canceled && result.assets.length > 0) {
-        setIdDocumentFile({ name: 'id-document.jpg', uri: result.assets[0].uri });
+      if (useCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          showAlert('Permission Denied', 'Camera permission is required to take a photo.');
+          return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+          quality: 0.8,
+          allowsEditing: false,
+        });
+        if (!result.canceled && result.assets.length > 0) {
+          setIdDocumentFile({ name: 'id-document.jpg', uri: result.assets[0].uri });
+        }
+      } else {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          quality: 0.8,
+          allowsEditing: false,
+        });
+        if (!result.canceled && result.assets.length > 0) {
+          setIdDocumentFile({ name: 'id-document.jpg', uri: result.assets[0].uri });
+        }
       }
     } catch (err) {
       showAlert('Error', 'Failed to pick image');
     }
   };
 
-  const handlePickProfilePhoto = async () => {
+  const handlePickProfilePhoto = async (useCamera = false) => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        quality: 0.8,
-        allowsEditing: true,
-        aspect: [1, 1],
-      });
-      if (!result.canceled && result.assets.length > 0) {
-        setProfilePhoto({ uri: result.assets[0].uri });
+      if (useCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          showAlert('Permission Denied', 'Camera permission is required to take a photo.');
+          return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+          quality: 0.8,
+          allowsEditing: true,
+          aspect: [1, 1],
+        });
+        if (!result.canceled && result.assets.length > 0) {
+          setProfilePhoto({ uri: result.assets[0].uri });
+        }
+      } else {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          quality: 0.8,
+          allowsEditing: true,
+          aspect: [1, 1],
+        });
+        if (!result.canceled && result.assets.length > 0) {
+          setProfilePhoto({ uri: result.assets[0].uri });
+        }
       }
     } catch (err) {
       showAlert('Error', 'Failed to pick image');
@@ -757,7 +775,7 @@ export default function OnboardingScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Profile Photo (optional)</Text>
               <View style={styles.photoUploadContainer}>
-                <Pressable onPress={handlePickProfilePhoto} style={styles.photoUploadBtn}>
+                <Pressable onPress={() => handlePickProfilePhoto(false)} style={styles.photoUploadBtn}>
                   {profilePhoto ? (
                     <Image source={{ uri: profilePhoto.uri }} style={styles.profilePhotoPreview} contentFit="cover" />
                   ) : (
@@ -767,8 +785,18 @@ export default function OnboardingScreen() {
                   )}
                 </Pressable>
                 <View style={styles.photoUploadTextCol}>
-                  <Text style={styles.photoUploadTitle}>Upload a profile picture</Text>
-                  <Text style={styles.photoUploadHint}>Square photo, max 5MB. This will be visible to customers.</Text>
+                  <Text style={styles.photoUploadTitle}>Add a profile picture</Text>
+                  <Text style={styles.photoUploadHint}>Square photo, max 5MB. Visible to customers.</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                    <Pressable onPress={() => handlePickProfilePhoto(true)} style={[styles.vehicleOption, { flex: 0, minWidth: 0, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, gap: 6 }]}>
+                      <MaterialIcons name="camera-alt" size={16} color={theme.textSecondary} />
+                      <Text style={[styles.vehicleLabel, { fontSize: 12 }]}>Camera</Text>
+                    </Pressable>
+                    <Pressable onPress={() => handlePickProfilePhoto(false)} style={[styles.vehicleOption, { flex: 0, minWidth: 0, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, gap: 6 }]}>
+                      <MaterialIcons name="photo-library" size={16} color={theme.textSecondary} />
+                      <Text style={[styles.vehicleLabel, { fontSize: 12 }]}>Gallery</Text>
+                    </Pressable>
+                  </View>
                 </View>
               </View>
             </View>
@@ -832,7 +860,7 @@ export default function OnboardingScreen() {
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>ID Document Photo *</Text>
-              <Pressable onPress={handlePickIdDocument} style={[styles.uploadArea, idDocumentFile && styles.uploadAreaDone]}>
+              <Pressable onPress={() => handlePickIdDocument(false)} style={[styles.uploadArea, idDocumentFile && styles.uploadAreaDone]}>
                 {idDocumentFile ? (
                   <View style={styles.uploadedFileRow}>
                     <View style={styles.pdfIcon}>
@@ -851,8 +879,18 @@ export default function OnboardingScreen() {
                     <View style={styles.uploadIconCircle}>
                       <MaterialIcons name="photo-camera" size={32} color={theme.primary} />
                     </View>
-                    <Text style={styles.uploadTitle}>Tap to upload ID photo</Text>
+                    <Text style={styles.uploadTitle}>Upload or take ID photo</Text>
                     <Text style={styles.uploadSubtitle}>Clear photo of your {idType === 'nin' ? 'NIN slip' : 'passport'}</Text>
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                      <Pressable onPress={() => handlePickIdDocument(true)} style={[styles.vehicleOption, { flex: 0, minWidth: 0, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, gap: 6 }]}>
+                        <MaterialIcons name="camera-alt" size={18} color={theme.textSecondary} />
+                        <Text style={[styles.vehicleLabel, { fontSize: 12 }]}>Camera</Text>
+                      </Pressable>
+                      <Pressable onPress={() => handlePickIdDocument(false)} style={[styles.vehicleOption, { flex: 0, minWidth: 0, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, gap: 6 }]}>
+                        <MaterialIcons name="photo-library" size={18} color={theme.textSecondary} />
+                        <Text style={[styles.vehicleLabel, { fontSize: 12 }]}>Gallery</Text>
+                      </Pressable>
+                    </View>
                   </>
                 )}
               </Pressable>
@@ -959,82 +997,8 @@ export default function OnboardingScreen() {
           </View>
 
           <View style={{ height: 24 }} />
-          <PrimaryButton label="I Acknowledge" onPress={handleFeesAcknowledged} variant="dark" icon={<MaterialIcons name="thumb-up" size={20} color="#FFF" />} />
+          <PrimaryButton label={loading ? 'Setting up...' : 'Continue to SwiftChop'} onPress={handleFeesAcknowledged} loading={loading} variant="dark" icon={<MaterialIcons name="thumb-up" size={20} color="#FFF" />} />
         </ScrollView>
-      </View>
-    );
-  }
-
-  // ====== CUSTOMER: ADD CARD SCREEN ======
-  if (phase === 'card') {
-    return (
-      <View style={[styles.container, { backgroundColor: '#FFF', paddingTop: insets.top }]}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView contentContainerStyle={[styles.formScroll, { paddingBottom: insets.bottom + 32 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <Pressable onPress={() => setPhase('fees_acknowledgment')} style={styles.formBackBtn}>
-              <MaterialIcons name="arrow-back" size={22} color={theme.textPrimary} />
-            </Pressable>
-
-            <View style={styles.formHeader}>
-              <View style={[styles.formIconWrap, { backgroundColor: '#EBF5FF' }]}><MaterialIcons name="credit-card" size={32} color="#2563EB" /></View>
-              <Text style={styles.formTitle}>Add Payment Card</Text>
-              <Text style={styles.formSubtitle}>Add a debit or credit card for fast, seamless checkout. Your card is stored securely and encrypted by Paystack.</Text>
-            </View>
-
-            {isTestAccount ? (
-              <View style={styles.testBanner}>
-                <MaterialIcons name="science" size={16} color="#6D28D9" />
-                <Text style={styles.testBannerText}>Test account — fields are prefilled for App Review</Text>
-              </View>
-            ) : null}
-
-            <View style={styles.cardPreview}>
-              <LinearGradient colors={['#1A1A2E', '#16213E']} style={styles.cardGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-                <View style={styles.cardTopRow}><MaterialIcons name="credit-card" size={28} color="rgba(255,255,255,0.8)" /><MaterialIcons name="contactless" size={24} color="rgba(255,255,255,0.6)" /></View>
-                <Text style={styles.cardPreviewNumber}>{cardNumber || '\u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022  \u2022\u2022\u2022\u2022'}</Text>
-                <View style={styles.cardBottomRow}>
-                  <View><Text style={styles.cardSmallLabel}>CARDHOLDER</Text><Text style={styles.cardPreviewName}>{cardName || 'YOUR NAME'}</Text></View>
-                  <View><Text style={styles.cardSmallLabel}>EXPIRES</Text><Text style={styles.cardPreviewName}>{cardExpiry || 'MM/YY'}</Text></View>
-                </View>
-              </LinearGradient>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Card Number</Text>
-              <View style={styles.inputWrap}>
-                <MaterialIcons name="credit-card" size={20} color={theme.textMuted} style={styles.inputIcon} />
-                <TextInput style={styles.input} placeholder="1234 5678 9012 3456" placeholderTextColor={theme.textMuted} value={cardNumber} onChangeText={(t) => setCardNumber(formatCardNumber(t))} keyboardType="number-pad" maxLength={19} />
-              </View>
-            </View>
-
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.inputLabel}>Expiry Date</Text>
-                <View style={styles.inputWrap}><TextInput style={[styles.input, { textAlign: 'center' }]} placeholder="MM/YY" placeholderTextColor={theme.textMuted} value={cardExpiry} onChangeText={(t) => setCardExpiry(formatExpiry(t))} keyboardType="number-pad" maxLength={5} /></View>
-              </View>
-              <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.inputLabel}>CVV</Text>
-                <View style={styles.inputWrap}><TextInput style={[styles.input, { textAlign: 'center' }]} placeholder={"\u2022\u2022\u2022"} placeholderTextColor={theme.textMuted} value={cardCVV} onChangeText={(t) => setCardCVV(t.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" maxLength={4} secureTextEntry /></View>
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Cardholder Name</Text>
-              <View style={styles.inputWrap}>
-                <MaterialIcons name="person" size={20} color={theme.textMuted} style={styles.inputIcon} />
-                <TextInput style={styles.input} placeholder="Name on card" placeholderTextColor={theme.textMuted} value={cardName} onChangeText={setCardName} autoCapitalize="characters" />
-              </View>
-            </View>
-
-            <View style={styles.secureNote}>
-              <MaterialIcons name="lock" size={16} color={theme.success} />
-              <Text style={styles.secureNoteText}>Your card is stored securely and encrypted by Paystack — we never see your full card details.</Text>
-            </View>
-
-            <View style={{ height: 12 }} />
-            <PrimaryButton label={loading ? 'Setting up...' : 'Complete Setup'} onPress={handleCardComplete} loading={loading} variant="dark" />
-          </ScrollView>
-        </KeyboardAvoidingView>
       </View>
     );
   }

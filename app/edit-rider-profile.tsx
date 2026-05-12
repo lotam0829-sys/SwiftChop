@@ -57,21 +57,39 @@ export default function EditRiderProfileScreen() {
     load();
   }, [userProfile?.id]);
 
-  const handlePickPhoto = async () => {
+  const handlePickPhoto = async (useCamera = false) => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        quality: 0.8,
-        allowsEditing: true,
-        aspect: [1, 1],
-      });
-      if (!result.canceled && result.assets.length > 0) {
-        setNewAvatarLocal(result.assets[0].uri);
+      if (useCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          showAlert('Permission Denied', 'Camera permission is required to take a photo.');
+          return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+          quality: 0.8,
+          allowsEditing: true,
+          aspect: [1, 1],
+        });
+        if (!result.canceled && result.assets.length > 0) {
+          setNewAvatarLocal(result.assets[0].uri);
+        }
+      } else {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          quality: 0.8,
+          allowsEditing: true,
+          aspect: [1, 1],
+        });
+        if (!result.canceled && result.assets.length > 0) {
+          setNewAvatarLocal(result.assets[0].uri);
+        }
       }
     } catch (err) {
       showAlert('Error', 'Failed to pick image');
     }
   };
+
+  const [showPhotoOptions, setShowPhotoOptions] = useState(false);
 
   const handleSave = async () => {
     if (!userProfile?.id) return;
@@ -152,7 +170,7 @@ export default function EditRiderProfileScreen() {
         >
           {/* Avatar Section */}
           <View style={styles.avatarSection}>
-            <Pressable onPress={handlePickPhoto} style={styles.avatarWrap}>
+            <Pressable onPress={() => setShowPhotoOptions(true)} style={styles.avatarWrap}>
               {displayAvatar ? (
                 <Image source={{ uri: displayAvatar }} style={styles.avatar} contentFit="cover" />
               ) : (
@@ -165,6 +183,20 @@ export default function EditRiderProfileScreen() {
               </View>
             </Pressable>
             <Text style={styles.changePhotoText}>Tap to change photo</Text>
+
+            {/* Photo source picker */}
+            {showPhotoOptions ? (
+              <View style={styles.photoOptionsRow}>
+                <Pressable onPress={() => { setShowPhotoOptions(false); handlePickPhoto(true); }} style={styles.photoOptionBtn}>
+                  <MaterialIcons name="camera-alt" size={22} color="#10B981" />
+                  <Text style={styles.photoOptionText}>Take Photo</Text>
+                </Pressable>
+                <Pressable onPress={() => { setShowPhotoOptions(false); handlePickPhoto(false); }} style={styles.photoOptionBtn}>
+                  <MaterialIcons name="photo-library" size={22} color="#10B981" />
+                  <Text style={styles.photoOptionText}>Gallery</Text>
+                </Pressable>
+              </View>
+            ) : null}
           </View>
 
           {/* Personal Information Section */}
@@ -451,4 +483,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#059669',
   },
   saveBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+
+  // Photo options
+  photoOptionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+  },
+  photoOptionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#1A1A1A',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  photoOptionText: { fontSize: 13, fontWeight: '600', color: '#CCC' },
 });

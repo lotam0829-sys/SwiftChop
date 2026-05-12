@@ -26,6 +26,7 @@ export default function SignupScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [phone, setPhone] = useState('');
+  const [preferredName, setPreferredName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState('');
   const [settingUpProfile, setSettingUpProfile] = useState(false);
@@ -72,6 +73,7 @@ export default function SignupScreen() {
     if (password.length < 6) { showAlert('Error', 'Password must be at least 6 characters'); return false; }
     if (password !== confirmPassword) { showAlert('Error', 'Passwords do not match'); return false; }
     if (!phone.trim()) { showAlert('Error', 'Please enter your phone number'); return false; }
+    if (userRole === 'customer' && !preferredName.trim()) { showAlert('Error', 'Please enter your preferred name'); return false; }
     return true;
   };
 
@@ -101,6 +103,7 @@ export default function SignupScreen() {
         role: targetRole,
         is_approved: targetRole === 'customer',
         phone: phone.trim(),
+        username: preferredName.trim() || undefined,
       } as any);
       await refreshProfile();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -169,6 +172,16 @@ export default function SignupScreen() {
                   <View style={styles.dividerLine} />
                   <Text style={styles.dividerText}>or sign up with email</Text>
                   <View style={styles.dividerLine} />
+                </View>
+              ) : null}
+
+              {userRole === 'customer' ? (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>What should we call you?</Text>
+                  <View style={styles.inputWrap}>
+                    <MaterialIcons name="person" size={20} color={theme.textMuted} style={{ marginRight: 10 }} />
+                    <TextInput style={styles.input} placeholder="e.g. Tunde, Ngozi, Chef K" placeholderTextColor={theme.textMuted} value={preferredName} onChangeText={setPreferredName} autoCapitalize="words" />
+                  </View>
                 </View>
               ) : null}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, KeyboardAvoidingView, Platform, Modal } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, KeyboardAvoidingView, Platform, Modal, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -10,17 +10,22 @@ import { theme } from '../constants/theme';
 import { config, calculateDeliveryFee, deliveryPricing } from '../constants/config';
 import { useApp } from '../contexts/AppContext';
 import { useAuth, useAlert } from '@/template';
-import { initializePaystackPayment, confirmOrderPayment, cancelUnpaidOrder, fetchSavedCards, chargeSavedCard, SavedCard } from '../services/supabaseData';
+import { initializePaystackPayment, confirmOrderPayment, cancelUnpaidOrder } from '../services/supabaseData';
 import PrimaryButton from '../components/ui/PrimaryButton';
 import { useRestaurantHours } from '../hooks/useRestaurantHours';
 
 type OrderType = 'delivery' | 'pickup';
 
+/** Generate a 4-digit delivery PIN for order verification */
+function generateDeliveryPin(): string {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
 export default function CheckoutScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ scheduledTime?: string }>();
-  const { cart, cartTotal, placeOrder, userLocation, userProfile, restaurants } = useApp();
+  const { cart, cartTotal, placeOrder, userLocation, userProfile, restaurants, requestLocation } = useApp();
   const { user } = useAuth();
   const { showAlert } = useAlert();
 
@@ -31,32 +36,27 @@ export default function CheckoutScreen() {
   const [estimatedKm, setEstimatedKm] = useState<number | null>(null);
   const [loadingAddress, setLoadingAddress] = useState(false);
 
+  // Manual address mode
+  const [useManualAddress, setUseManualAddress] = useState(false);
+  const [manualAddress, setManualAddress] = useState('');
+
+  // Delivery PIN
+  const [deliveryPin, setDeliveryPin] = useState<string>('');
+
   // Paystack WebView state
   const [paystackUrl, setPaystackUrl] = useState<string | null>(null);
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
 
-  // Saved cards state
-  const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
-  const [selectedCard, setSelectedCard] = useState<SavedCard | null>(null);
-  const [loadingCards, setLoadingCards] = useState(false);
-  const [paymentMode, setPaymentMode] = useState<'new' | 'saved'>('new');
+  // Refreshing location
+  const [refreshingLocation, setRefreshingLocation] = useState(false);
 
   // Scheduled order info
   const scheduledTime = params.scheduledTime || null;
 
-  // Load saved cards
+  // Generate delivery PIN on mount
   useEffect(() => {
-    if (!user?.id) return;
-    setLoadingCards(true);
-    fetchSavedCards(user.id).then(({ data }) => {
-      setSavedCards(data);
-      if (data.length > 0) {
-        setSelectedCard(data[0]);
-        setPaymentMode('saved');
-      }
-      setLoadingCards(false);
-    });
-  }, [user?.id]);
+    setDeliveryPin(generateDeliveryPin());
+  }, []);
 
   // Get restaurant info for pickup address
   const restaurant = cart.length > 0 ? restaurants.find(r => r.id === cart[0].restaurantId) : null;
@@ -124,31 +124,65 @@ export default function CheckoutScreen() {
   const vat = Math.round((cartTotal + deliveryFee + serviceFee) * config.vatRate);
   const total = cartTotal + deliveryFee + serviceFee + vat;
 
-  // NOTE: Subaccount is NOT used for split payments. All funds go to SwiftChop's
-  // main account first. Restaurant/rider payouts happen AFTER delivery confirmation.
-  // This prevents premature credits.
+  const finalAddress = useManualAddress && manualAddress.trim() ? manualAddress.trim() : address;
+
+  const handleUseCurrentLocation = async () => {
+    setRefreshingLocation(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert('Permission Denied', 'Location permission is required. Please enable it in Settings.');
+        setRefreshingLocation(false);
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const results = await Location.reverseGeocodeAsync({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+      if (results.length > 0) {
+        const r = results[0];
+        const parts = [r.name, r.street, r.district, r.city, r.region].filter(Boolean);
+        const detected = parts.join(', ');
+        setAddress(detected);
+        setUseManualAddress(false);
+        setManualAddress('');
+      }
+      // Also refresh app-level location for distance calc
+      await requestLocation();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      console.log('Location refresh error:', err);
+      showAlert('Error', 'Could not detect your location. Please enter address manually.');
+    } finally {
+      setRefreshingLocation(false);
+    }
+  };
 
   const handlePlaceOrder = async () => {
     // Enforce restaurant operating hours
     if (!isCurrentlyOpen) {
-      showAlert('Restaurant Closed', `${restaurant?.name || 'This restaurant'} is currently closed. Please try again during their opening hours or schedule an order from the restaurant page.`);
+      showAlert('Restaurant Closed', `${restaurant?.name || 'This restaurant'} is currently closed. Please try again during their opening hours.`);
       return;
     }
-    if (orderType === 'delivery' && !address.trim()) {
+    const deliveryAddr = orderType === 'pickup'
+      ? `PICKUP: ${restaurant?.address || cart[0]?.restaurantName}`
+      : finalAddress;
+
+    if (orderType === 'delivery' && !deliveryAddr.trim()) {
       showAlert('Address Required', 'Please enter a delivery address before placing your order.');
       return;
     }
     setLoading(true);
 
-    const finalAddress = orderType === 'pickup'
-      ? `PICKUP: ${restaurant?.address || cart[0]?.restaurantName}`
-      : address;
-    const finalNote = scheduledTime
-      ? `[Scheduled: ${scheduledTime}] ${note}`.trim()
-      : note;
+    const finalNote = [
+      scheduledTime ? `[Scheduled: ${scheduledTime}]` : '',
+      orderType === 'delivery' ? `[PIN: ${deliveryPin}]` : '',
+      note,
+    ].filter(Boolean).join(' ').trim();
 
-    // Create the order first
-    const order = await placeOrder(finalAddress, finalNote, 'paystack', deliveryFee);
+    // Create the order first (as awaiting_payment)
+    const order = await placeOrder(deliveryAddr, finalNote, 'paystack', deliveryFee);
     if (!order) {
       setLoading(false);
       return;
@@ -156,55 +190,29 @@ export default function CheckoutScreen() {
 
     const customerEmail = user?.email || userProfile?.email || '';
 
-    // === SAVED CARD: One-tap charge ===
-    if (paymentMode === 'saved' && selectedCard) {
-      const { data: chargeData, error: chargeError } = await chargeSavedCard(
-        selectedCard.authorization_code,
-        customerEmail,
-        total,
-        order.id,
-        {
-          customer_name: userProfile?.username || 'Customer',
-          restaurant_name: restaurant?.name || cart[0]?.restaurantName,
-          order_type: orderType,
-        }
-      );
-
-      if (chargeError || !chargeData?.success) {
-        setLoading(false);
-        await cancelUnpaidOrder(order.id);
-        showAlert('Payment Failed', chargeError || 'Could not charge your saved card. Please try a new payment method.');
-        return;
-      }
-
-      // Payment successful — order is confirmed
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setLoading(false);
-      router.replace({ pathname: '/order-tracking', params: { orderId: order.id } });
-      return;
-    }
-
-    // === NEW CARD: Paystack WebView ===
+    // Initialize Paystack hosted checkout
     const { data: paystackData, error: paystackError } = await initializePaystackPayment(
       customerEmail,
       total,
       order.id,
-      null, // No subaccount split — all payment to main account
+      null,
       {
         customer_name: userProfile?.username || 'Customer',
         restaurant_name: restaurant?.name || cart[0]?.restaurantName,
         order_type: orderType,
+        delivery_pin: orderType === 'delivery' ? deliveryPin : undefined,
       }
     );
 
     if (paystackError || !paystackData) {
       setLoading(false);
+      // Cancel the unpaid order since payment init failed
       await cancelUnpaidOrder(order.id);
       showAlert('Payment Error', paystackError || 'Could not initialize payment. Please try again.');
       return;
     }
 
-    // Show Paystack WebView
+    // Show Paystack hosted checkout in WebView
     setPendingOrderId(order.id);
     setPaystackUrl(paystackData.authorization_url);
     setLoading(false);
@@ -213,10 +221,9 @@ export default function CheckoutScreen() {
   const handlePaystackWebViewChange = async (navState: any) => {
     const url = navState.url || '';
     // Detect callback URL (payment completed)
-    if (url.includes('swiftchop.app/payment/callback') || url.includes('callback')) {
+    if (url.includes('swiftchop.app/payment/callback') || (url.includes('callback') && !url.includes('paystack.co'))) {
       setPaystackUrl(null);
       if (pendingOrderId) {
-        // Confirm payment — transition order from awaiting_payment to pending
         await confirmOrderPayment(pendingOrderId);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         router.replace({ pathname: '/order-tracking', params: { orderId: pendingOrderId } });
@@ -225,14 +232,19 @@ export default function CheckoutScreen() {
     }
     // Detect payment cancellation / close
     if (url.includes('paystack.co/close') || url.includes('/cancel')) {
-      setPaystackUrl(null);
-      if (pendingOrderId) {
-        // Cancel the unpaid order so it does not proceed
-        await cancelUnpaidOrder(pendingOrderId);
-        showAlert('Payment Cancelled', 'Your order has been cancelled. No charge was made.');
-        router.replace('/(tabs)/orders');
-      }
+      handlePaystackClose();
     }
+  };
+
+  const handlePaystackClose = async () => {
+    setPaystackUrl(null);
+    if (pendingOrderId) {
+      await cancelUnpaidOrder(pendingOrderId);
+      setPendingOrderId(null);
+    }
+    // Return customer to checkout with cart intact — regenerate PIN
+    setDeliveryPin(generateDeliveryPin());
+    showAlert('Payment Cancelled', 'Your payment was not completed. Your cart items are still here — you can try again when ready.');
   };
 
   // Paystack WebView Modal
@@ -240,15 +252,7 @@ export default function CheckoutScreen() {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Pressable onPress={async () => {
-            setPaystackUrl(null);
-            if (pendingOrderId) {
-              // User closed payment WebView without completing — cancel order
-              await cancelUnpaidOrder(pendingOrderId);
-              showAlert('Payment Cancelled', 'Your order has been cancelled. No charge was made.');
-              router.replace('/(tabs)/orders');
-            }
-          }} style={styles.backBtn}>
+          <Pressable onPress={handlePaystackClose} style={styles.backBtn}>
             <MaterialIcons name="close" size={22} color={theme.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Complete Payment</Text>
@@ -326,13 +330,59 @@ export default function CheckoutScreen() {
               <View style={styles.sectionHeader}>
                 <MaterialIcons name="location-on" size={20} color={theme.primary} />
                 <Text style={styles.sectionTitle}>Delivery Address</Text>
-                {loadingAddress ? <Text style={styles.loadingHint}>Detecting...</Text> : null}
               </View>
-              <TextInput style={styles.addressInput} value={address} onChangeText={setAddress} placeholder="Enter delivery address" placeholderTextColor={theme.textMuted} multiline />
-              {userLocation ? (
+
+              {/* Use Current Location button */}
+              <Pressable
+                onPress={handleUseCurrentLocation}
+                disabled={refreshingLocation}
+                style={[styles.useLocationBtn, refreshingLocation && { opacity: 0.6 }]}
+              >
+                {refreshingLocation ? (
+                  <ActivityIndicator size="small" color={theme.primary} />
+                ) : (
+                  <MaterialIcons name="my-location" size={18} color={theme.primary} />
+                )}
+                <Text style={styles.useLocationText}>
+                  {refreshingLocation ? 'Detecting location...' : 'Use current location'}
+                </Text>
+              </Pressable>
+
+              {/* Detected address display */}
+              {!useManualAddress && address ? (
+                <View style={styles.detectedAddressCard}>
+                  <MaterialIcons name="location-on" size={18} color={theme.success} />
+                  <Text style={styles.detectedAddressText} numberOfLines={2}>{address}</Text>
+                </View>
+              ) : null}
+
+              {/* Toggle for manual address */}
+              <Pressable
+                onPress={() => { setUseManualAddress(!useManualAddress); if (!useManualAddress) setManualAddress(''); }}
+                style={styles.manualToggle}
+              >
+                <MaterialIcons name={useManualAddress ? 'location-on' : 'edit-location-alt'} size={16} color={theme.primary} />
+                <Text style={styles.manualToggleText}>
+                  {useManualAddress ? 'Use detected address' : 'Deliver to a different address'}
+                </Text>
+              </Pressable>
+
+              {/* Manual address input */}
+              {useManualAddress ? (
+                <TextInput
+                  style={styles.addressInput}
+                  value={manualAddress}
+                  onChangeText={setManualAddress}
+                  placeholder="Enter full delivery address"
+                  placeholderTextColor={theme.textMuted}
+                  multiline
+                />
+              ) : null}
+
+              {loadingAddress ? (
                 <View style={styles.locationDetected}>
-                  <MaterialIcons name="my-location" size={14} color={theme.success} />
-                  <Text style={styles.locationDetectedText}>Using your current location</Text>
+                  <ActivityIndicator size="small" color={theme.primary} />
+                  <Text style={styles.locationDetectedText}>Detecting address...</Text>
                 </View>
               ) : null}
             </View>
@@ -358,76 +408,48 @@ export default function CheckoutScreen() {
             </View>
           )}
 
-          {/* Payment Method */}
+          {/* Delivery PIN */}
+          {orderType === 'delivery' ? (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <MaterialIcons name="pin" size={20} color={theme.primary} />
+                <Text style={styles.sectionTitle}>Delivery PIN</Text>
+              </View>
+              <View style={styles.pinCard}>
+                <View style={styles.pinDisplay}>
+                  {deliveryPin.split('').map((digit, i) => (
+                    <View key={i} style={styles.pinDigitBox}>
+                      <Text style={styles.pinDigitText}>{digit}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={styles.pinHint}>Share this PIN with your rider to confirm delivery. Do not share it before receiving your order.</Text>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Payment — Paystack Hosted Checkout */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <MaterialIcons name="payment" size={20} color={theme.primary} />
-              <Text style={styles.sectionTitle}>Payment Method</Text>
+              <Text style={styles.sectionTitle}>Payment</Text>
             </View>
 
-            {/* Saved cards */}
-            {savedCards.length > 0 ? (
-              <>
-                {savedCards.map((card, idx) => (
-                  <Pressable
-                    key={card.signature || idx}
-                    onPress={() => { Haptics.selectionAsync(); setPaymentMode('saved'); setSelectedCard(card); }}
-                    style={[styles.paymentOption, paymentMode === 'saved' && selectedCard?.signature === card.signature && styles.paymentOptionActive]}
-                  >
-                    <View style={[styles.paymentIcon, { backgroundColor: '#EBF5FF' }]}>
-                      <MaterialIcons name="credit-card" size={22} color="#2563EB" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.paymentLabel}>{card.brand} {"\u2022\u2022\u2022\u2022"} {card.last4}</Text>
-                      <Text style={styles.paymentSub}>{card.bank} {"\u00B7"} Expires {card.exp_month}/{card.exp_year}</Text>
-                    </View>
-                    <View style={[styles.radio, paymentMode === 'saved' && selectedCard?.signature === card.signature && styles.radioActive]}>
-                      {paymentMode === 'saved' && selectedCard?.signature === card.signature ? <View style={styles.radioInner} /> : null}
-                    </View>
-                  </Pressable>
-                ))}
-                <Pressable
-                  onPress={() => { Haptics.selectionAsync(); setPaymentMode('new'); setSelectedCard(null); }}
-                  style={[styles.paymentOption, paymentMode === 'new' && styles.paymentOptionActive]}
-                >
-                  <View style={[styles.paymentIcon, { backgroundColor: '#E8F5E9' }]}>
-                    <MaterialIcons name="add-card" size={22} color="#2E7D32" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.paymentLabel}>Pay with new card</Text>
-                    <Text style={styles.paymentSub}>Enter new card details via Paystack</Text>
-                  </View>
-                  <View style={[styles.radio, paymentMode === 'new' && styles.radioActive]}>
-                    {paymentMode === 'new' ? <View style={styles.radioInner} /> : null}
-                  </View>
-                </Pressable>
-              </>
-            ) : (
-              <View style={[styles.paymentOption, styles.paymentOptionActive]}>
-                <View style={[styles.paymentIcon, { backgroundColor: '#E8F5E9' }]}>
-                  <MaterialIcons name="credit-card" size={22} color="#2E7D32" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.paymentLabel}>Pay with Card</Text>
-                  <Text style={styles.paymentSub}>Debit or credit card via Paystack</Text>
-                </View>
-                <View style={[styles.radio, styles.radioActive]}>
-                  <View style={styles.radioInner} />
-                </View>
+            <View style={styles.paystackInfoCard}>
+              <View style={styles.paystackInfoIcon}>
+                <MaterialIcons name="credit-card" size={24} color="#2E7D32" />
               </View>
-            )}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.paystackInfoTitle}>Pay via Paystack</Text>
+                <Text style={styles.paystackInfoSub}>Card, bank transfer, or USSD — all handled securely by Paystack</Text>
+              </View>
+              <MaterialIcons name="lock" size={18} color={theme.success} />
+            </View>
 
-            {paymentMode === 'saved' && selectedCard ? (
-              <View style={styles.savedCardInfo}>
-                <MaterialIcons name="flash-on" size={16} color={theme.primary} />
-                <Text style={styles.savedCardInfoText}>One-tap payment — your {selectedCard.brand} card will be charged instantly</Text>
-              </View>
-            ) : (
-              <View style={styles.paystackSecure}>
-                <MaterialIcons name="lock" size={14} color={theme.success} />
-                <Text style={styles.paystackSecureText}>Secured by Paystack. Your card will be saved for future use.</Text>
-              </View>
-            )}
+            <View style={styles.paystackSecure}>
+              <MaterialIcons name="verified-user" size={14} color={theme.success} />
+              <Text style={styles.paystackSecureText}>Your card will be saved automatically for faster future checkouts.</Text>
+            </View>
           </View>
 
           {/* Delivery Note */}
@@ -453,7 +475,6 @@ export default function CheckoutScreen() {
               <Text style={styles.sectionTitle}>Order Summary</Text>
             </View>
 
-            {/* Individual items */}
             <Text style={styles.breakdownSectionLabel}>Food Items</Text>
             {cart.map((ci) => (
               <View key={ci.menuItem.id} style={styles.summaryItem}>
@@ -464,7 +485,6 @@ export default function CheckoutScreen() {
             ))}
             <View style={styles.divider} />
 
-            {/* Subtotal */}
             <View style={styles.summaryRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="restaurant-menu" size={14} color={theme.textMuted} />
@@ -473,7 +493,6 @@ export default function CheckoutScreen() {
               <Text style={styles.summaryValue}>{config.currency}{cartTotal.toLocaleString()}</Text>
             </View>
 
-            {/* Delivery fee */}
             <View style={styles.summaryRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="delivery-dining" size={14} color={theme.textMuted} />
@@ -487,7 +506,6 @@ export default function CheckoutScreen() {
               </Text>
             </View>
 
-            {/* Service/App fee */}
             <View style={styles.summaryRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="apps" size={14} color={theme.textMuted} />
@@ -496,7 +514,6 @@ export default function CheckoutScreen() {
               <Text style={styles.summaryValue}>{config.currency}{serviceFee.toLocaleString()}</Text>
             </View>
 
-            {/* VAT */}
             <View style={styles.summaryRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialIcons name="account-balance" size={14} color={theme.textMuted} />
@@ -507,7 +524,6 @@ export default function CheckoutScreen() {
 
             <View style={styles.divider} />
 
-            {/* Grand Total */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={styles.breakdownGrandLabel}>You Pay</Text>
               <Text style={styles.breakdownGrandVal}>{config.currency}{total.toLocaleString()}</Text>
@@ -540,8 +556,6 @@ export default function CheckoutScreen() {
               <Text style={styles.closingSoonWarningText}>{closingSoonLabel} — place your order soon!</Text>
             </View>
           ) : null}
-
-
         </ScrollView>
 
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
@@ -555,7 +569,7 @@ export default function CheckoutScreen() {
             <Text style={styles.totalValue}>{config.currency}{total.toLocaleString()}</Text>
           </View>
           <PrimaryButton
-            label={loading ? 'Processing...' : `${orderType === 'pickup' ? 'Pay & Place Pickup Order' : 'Pay & Place Order'} \u00B7 ${config.currency}${total.toLocaleString()}`}
+            label={loading ? 'Processing...' : `Pay ${config.currency}${total.toLocaleString()} via Paystack`}
             onPress={handlePlaceOrder}
             loading={loading}
             variant="dark"
@@ -579,31 +593,40 @@ const styles = StyleSheet.create({
   section: { paddingHorizontal: 16, marginBottom: 20 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
-  loadingHint: { fontSize: 12, color: theme.textMuted, marginLeft: 'auto' },
   orderTypeToggle: { flexDirection: 'row', gap: 10 },
   orderTypeBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 16, borderRadius: 16, backgroundColor: theme.backgroundSecondary, borderWidth: 1.5, borderColor: theme.border },
   orderTypeBtnActive: { backgroundColor: theme.primary, borderColor: theme.primary },
   orderTypeBtnText: { fontSize: 15, fontWeight: '700', color: theme.textSecondary },
   orderTypeBtnTextActive: { color: '#FFF' },
   orderTypeHint: { fontSize: 11, color: theme.textMuted, fontWeight: '500' },
+  // Address section
+  useLocationBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 14, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted, marginBottom: 10 },
+  useLocationText: { fontSize: 14, fontWeight: '600', color: theme.primary },
+  detectedAddressCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 14, backgroundColor: '#F0FDF4', borderWidth: 1, borderColor: '#A7F3D0', marginBottom: 10 },
+  detectedAddressText: { flex: 1, fontSize: 14, fontWeight: '500', color: theme.textPrimary, lineHeight: 20 },
+  manualToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, marginBottom: 6 },
+  manualToggleText: { fontSize: 13, fontWeight: '600', color: theme.primary },
   addressInput: { backgroundColor: theme.backgroundSecondary, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, color: theme.textPrimary, minHeight: 52, borderWidth: 1, borderColor: theme.border },
   locationDetected: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
-  locationDetectedText: { fontSize: 12, color: theme.success, fontWeight: '500' },
+  locationDetectedText: { fontSize: 12, color: theme.primary, fontWeight: '500' },
   pickupCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 14, backgroundColor: theme.primaryFaint, borderWidth: 1, borderColor: theme.primaryMuted },
   pickupIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
   pickupName: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
   pickupAddress: { fontSize: 13, color: theme.textSecondary, marginTop: 3 },
   pickupInfoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 10 },
   pickupInfoText: { flex: 1, fontSize: 12, color: theme.textMuted, lineHeight: 17 },
-  paymentOption: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1.5, marginBottom: 10 },
-  paymentOptionActive: { borderColor: '#2E7D32', backgroundColor: '#F0FDF4' },
-  paymentIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  paymentLabel: { fontSize: 15, fontWeight: '600', color: theme.textPrimary },
-  paymentSub: { fontSize: 12, color: theme.textMuted, marginTop: 2 },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' },
-  radioActive: { borderColor: '#2E7D32' },
-  radioInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#2E7D32' },
-  paystackSecure: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 },
+  // PIN
+  pinCard: { padding: 20, borderRadius: 16, backgroundColor: theme.backgroundSecondary, borderWidth: 1, borderColor: theme.border, alignItems: 'center' },
+  pinDisplay: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  pinDigitBox: { width: 48, height: 56, borderRadius: 12, backgroundColor: '#FFF', borderWidth: 2, borderColor: theme.primary, alignItems: 'center', justifyContent: 'center' },
+  pinDigitText: { fontSize: 24, fontWeight: '800', color: theme.primary },
+  pinHint: { fontSize: 12, color: theme.textMuted, textAlign: 'center', lineHeight: 17 },
+  // Payment info
+  paystackInfoCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 16, backgroundColor: '#F0FDF4', borderWidth: 1.5, borderColor: '#A7F3D0' },
+  paystackInfoIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#D1FAE5', alignItems: 'center', justifyContent: 'center' },
+  paystackInfoTitle: { fontSize: 15, fontWeight: '700', color: theme.textPrimary, marginBottom: 2 },
+  paystackInfoSub: { fontSize: 12, color: theme.textSecondary, lineHeight: 17 },
+  paystackSecure: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, marginTop: 10 },
   paystackSecureText: { fontSize: 12, color: theme.textMuted },
   noteInput: { backgroundColor: theme.backgroundSecondary, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 14, color: theme.textPrimary, minHeight: 48, borderWidth: 1, borderColor: theme.border },
   summaryItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
@@ -611,11 +634,6 @@ const styles = StyleSheet.create({
   summaryItemName: { flex: 1, fontSize: 14, color: theme.textPrimary },
   summaryItemPrice: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
   breakdownSectionLabel: { fontSize: 12, fontWeight: '600', color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
-  breakdownUnitPrice: { fontSize: 11, color: theme.textMuted, marginTop: 1 },
-  breakdownTotalCard: { backgroundColor: theme.backgroundSecondary, borderRadius: 12, padding: 14, marginTop: 4 },
-  breakdownTotalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  breakdownTotalLabel: { fontSize: 13, color: theme.textSecondary },
-  breakdownTotalVal: { fontSize: 13, fontWeight: '600', color: theme.textPrimary },
   breakdownGrandLabel: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
   breakdownGrandVal: { fontSize: 18, fontWeight: '700', color: theme.primary },
   divider: { height: 1, backgroundColor: theme.border, marginVertical: 12 },
@@ -623,8 +641,6 @@ const styles = StyleSheet.create({
   summaryLabel: { fontSize: 14, color: theme.textSecondary },
   summaryHint: { fontSize: 11, color: theme.textMuted },
   summaryValue: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
-  feeNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 16, marginBottom: 16 },
-  feeNoteText: { flex: 1, fontSize: 12, color: theme.textMuted, lineHeight: 17 },
   bottomBar: { paddingHorizontal: 16, paddingTop: 14, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: theme.border },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   totalLabel: { fontSize: 14, fontWeight: '600', color: theme.textSecondary },
@@ -635,8 +651,6 @@ const styles = StyleSheet.create({
   closedWarningText: { fontSize: 12, color: '#991B1B', lineHeight: 17 },
   closingSoonWarning: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 16, padding: 12, borderRadius: 12, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
   closingSoonWarningText: { fontSize: 13, fontWeight: '600', color: '#92400E' },
-  savedCardInfo: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, marginTop: 4 },
-  savedCardInfoText: { flex: 1, fontSize: 12, color: theme.primary, fontWeight: '500' },
   highFeeRecommendation: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginHorizontal: 16, marginBottom: 16, padding: 14, borderRadius: 14, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#FDE68A' },
   highFeeTitle: { fontSize: 14, fontWeight: '700', color: '#92400E', marginBottom: 4 },
   highFeeText: { fontSize: 12, color: '#A16207', lineHeight: 17 },

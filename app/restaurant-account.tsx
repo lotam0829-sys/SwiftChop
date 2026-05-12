@@ -240,23 +240,23 @@ export default function RestaurantAccountScreen() {
               <TextInput style={styles.input} value={address} onChangeText={setAddress} placeholder="Restaurant address" placeholderTextColor="#666" />
             </View>
 
-            {/* Location Picker */}
+            {/* Location Picker — Map-style with address search */}
             <View style={styles.field}>
-              <Text style={styles.label}>Restaurant Location (GPS)</Text>
+              <Text style={styles.label}>Restaurant Location</Text>
               <Text style={styles.locationHint}>
-                Accurate coordinates enable distance-based delivery fees for customers.
+                Set your restaurant location for accurate delivery fees. Use auto-detect or search from your address above.
               </Text>
 
               {latitude !== null && longitude !== null ? (
                 <View style={styles.coordsDisplay}>
                   <MaterialIcons name="location-on" size={20} color="#10B981" />
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.coordsText}>
-                      {latitude.toFixed(5)}, {longitude.toFixed(5)}
-                    </Text>
+                    <Text style={styles.coordsText}>Location set</Text>
                     {locationAddress ? (
-                      <Text style={styles.coordsAddress} numberOfLines={1}>{locationAddress}</Text>
-                    ) : null}
+                      <Text style={styles.coordsAddress} numberOfLines={2}>{locationAddress}</Text>
+                    ) : (
+                      <Text style={styles.coordsAddress}>{latitude.toFixed(5)}, {longitude.toFixed(5)}</Text>
+                    )}
                   </View>
                   <MaterialIcons name="check-circle" size={18} color="#10B981" />
                 </View>
@@ -279,7 +279,7 @@ export default function RestaurantAccountScreen() {
                     <MaterialIcons name="my-location" size={18} color="#FFF" />
                   )}
                   <Text style={styles.locationBtnPrimaryText}>
-                    {detectingLocation ? 'Detecting...' : 'Auto-Detect'}
+                    {detectingLocation ? 'Detecting...' : 'Use My Location'}
                   </Text>
                 </Pressable>
 
@@ -289,34 +289,8 @@ export default function RestaurantAccountScreen() {
                   style={({ pressed }) => [styles.locationBtn, styles.locationBtnSecondary, pressed && { opacity: 0.85 }, (!address.trim() || detectingLocation) && { opacity: 0.4 }]}
                 >
                   <MaterialIcons name="search" size={18} color={theme.primary} />
-                  <Text style={styles.locationBtnSecondaryText}>From Address</Text>
+                  <Text style={styles.locationBtnSecondaryText}>Find from Address</Text>
                 </Pressable>
-              </View>
-
-              {/* Manual coordinate entry */}
-              <View style={styles.manualCoords}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.coordLabel}>Latitude</Text>
-                  <TextInput
-                    style={styles.coordInput}
-                    value={latitude !== null ? latitude.toString() : ''}
-                    onChangeText={t => { const n = parseFloat(t); setLatitude(isNaN(n) ? null : n); }}
-                    placeholder="e.g. 6.5244"
-                    placeholderTextColor="#555"
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.coordLabel}>Longitude</Text>
-                  <TextInput
-                    style={styles.coordInput}
-                    value={longitude !== null ? longitude.toString() : ''}
-                    onChangeText={t => { const n = parseFloat(t); setLongitude(isNaN(n) ? null : n); }}
-                    placeholder="e.g. 3.3792"
-                    placeholderTextColor="#555"
-                    keyboardType="decimal-pad"
-                  />
-                </View>
               </View>
             </View>
 
@@ -391,7 +365,4 @@ const styles = StyleSheet.create({
   locationBtnPrimaryText: { fontSize: 14, fontWeight: '600', color: '#FFF' },
   locationBtnSecondary: { backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: theme.primary },
   locationBtnSecondaryText: { fontSize: 14, fontWeight: '600', color: theme.primary },
-  manualCoords: { flexDirection: 'row', gap: 10 },
-  coordLabel: { fontSize: 11, fontWeight: '600', color: '#888', marginBottom: 6 },
-  coordInput: { backgroundColor: '#1A1A1A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: '#FFF', borderWidth: 1, borderColor: '#2A2A2A' },
 });
