@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, RefreshControl, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
-import { getSupabaseClient } from '@/template';
+import { useAlert, getSupabaseClient } from '@/template';
 import { formatNigerianDate, formatNigerianTime } from '../../constants/timeUtils';
 
 interface DeliveryOrder {
@@ -14,7 +14,9 @@ interface DeliveryOrder {
   order_number: string;
   restaurant_name: string;
   customer_name: string | null;
+  customer_phone: string | null;
   delivery_address: string;
+  delivery_note: string | null;
   total: number;
   status: string;
   created_at: string;
@@ -33,21 +35,36 @@ const statusConfig: Record<string, { color: string; bg: string; label: string; i
   cancelled: { color: '#EF4444', bg: '#FEE2E2', label: 'Cancelled', icon: 'cancel' },
 };
 
+/** Extract the 4-digit PIN from an order's delivery_note. Returns null if none found. */
+function extractPin(note: string | null | undefined): string | null {
+  if (!note) return null;
+  const match = note.match(/\[PIN:\s*(\d{4})\]/i);
+  return match ? match[1] : null;
+}
+
 export default function RiderDeliveriesScreen() {
   const insets = useSafeAreaInsets();
   const { userProfile } = useApp();
+  const { showAlert } = useAlert();
 
   const [deliveries, setDeliveries] = useState<DeliveryOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'active' | 'completed' | 'all'>('active');
 
+  // PIN verification modal state
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+  const [pinTargetOrder, setPinTargetOrder] = useState<DeliveryOrder | null>(null);
+  const [pinDigits, setPinDigits] = useState<string[]>(['', '', '', '']);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [confirmingDelivery, setConfirmingDelivery] = useState(false);
+  const pinInputs = useRef<Array<TextInput | null>>([null, null, null, null]);
+
   const fetchDeliveries = useCallback(async () => {
     if (!userProfile?.id) return;
     try {
       const supabase = getSupabaseClient();
 
-      // Fetch rider's delivery payments to find associated orders
       const { data: payments } = await supabase
         .from('rider_payments')
         .select('order_id, amount, status, distance_km')
@@ -64,7 +81,7 @@ export default function RiderDeliveriesScreen() {
       const orderIds = payments.map(p => p.order_id);
       const { data: orders } = await supabase
         .from('orders')
-        .select('id, order_number, restaurant_name, customer_name, delivery_address, total, status, created_at, shipday_carrier_name')
+        .select('id, order_number, restaurant_name, customer_name, customer_phone, delivery_address, delivery_note, total, status, created_at, shipday_carrier_name')
         .in('id', orderIds)
         .order('created_at', { ascending: false });
 
@@ -108,9 +125,114 @@ export default function RiderDeliveriesScreen() {
     return true;
   });
 
+  const openPinModal = (order: DeliveryOrder) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setPinTargetOrder(order);
+    setPinDigits(['', '', '', '']);
+    setPinError(null);
+    setPinModalOpen(true);
+    // Focus first input shortly after opening
+    setTimeout(() => { pinInputs.current[0]?.focus(); }, 250);
+  };
+
+  const closePinModal = () => {
+    setPinModalOpen(false);
+    setPinTargetOrder(null);
+    setPinDigits(['', '', '', '']);
+    setPinError(null);
+    setConfirmingDelivery(false);
+  };
+
+  const handlePinDigitChange = (index: number, value: string) => {
+    // Only accept digits
+    const digit = value.replace(/[^0-9]/g, '').slice(-1);
+    const next = [...pinDigits];
+    next[index] = digit;
+    setPinDigits(next);
+    setPinError(null);
+    if (digit && index < 3) {
+      pinInputs.current[index + 1]?.focus();
+    }
+  };
+
+  const handlePinKeyPress = (index: number, key: string) => {
+    if (key === 'Backspace' && !pinDigits[index] && index > 0) {
+      pinInputs.current[index - 1]?.focus();
+      const next = [...pinDigits];
+      next[index - 1] = '';
+      setPinDigits(next);
+    }
+  };
+
+  const handleConfirmDelivery = async () => {
+    if (!pinTargetOrder) return;
+
+    const enteredPin = pinDigits.join('');
+    if (enteredPin.length !== 4) {
+      setPinError('Please enter all 4 digits');
+      return;
+    }
+
+    const expectedPin = extractPin(pinTargetOrder.delivery_note);
+
+    if (!expectedPin) {
+      // Legacy order without PIN — allow completion but warn
+      showAlert(
+        'No PIN on Order',
+        'This order does not have a delivery PIN (older order). Confirm delivery anyway?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Confirm', onPress: () => finalizeDelivery(pinTargetOrder.id) },
+        ]
+      );
+      return;
+    }
+
+    if (enteredPin !== expectedPin) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setPinError('Incorrect PIN. Ask the customer to share it again.');
+      setPinDigits(['', '', '', '']);
+      pinInputs.current[0]?.focus();
+      return;
+    }
+
+    // PIN correct — mark delivered
+    await finalizeDelivery(pinTargetOrder.id);
+  };
+
+  const finalizeDelivery = async (orderId: string) => {
+    setConfirmingDelivery(true);
+    try {
+      const supabase = getSupabaseClient();
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'delivered', updated_at: new Date().toISOString() })
+        .eq('id', orderId);
+
+      if (error) {
+        console.log('Delivery confirm error:', error);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setPinError('Could not update order. Please try again.');
+        setConfirmingDelivery(false);
+        return;
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      closePinModal();
+      showAlert('Delivery Confirmed', 'The order has been marked as delivered. Your payment will be processed shortly.');
+      await fetchDeliveries();
+    } catch (err) {
+      console.log('Finalize delivery error:', err);
+      setPinError('Something went wrong. Please try again.');
+      setConfirmingDelivery(false);
+    }
+  };
+
   const renderDelivery = ({ item }: { item: DeliveryOrder }) => {
     const cfg = statusConfig[item.status] || statusConfig.pending;
     const date = new Date(item.created_at);
+    const isPickup = item.delivery_address?.startsWith('PICKUP:');
+    const canConfirmDelivery = item.status === 'on_the_way' && !isPickup;
 
     return (
       <View style={styles.deliveryCard}>
@@ -138,7 +260,7 @@ export default function RiderDeliveriesScreen() {
           <View style={styles.detailRow}>
             <MaterialIcons name="location-on" size={16} color="#6B7280" />
             <Text style={styles.detailText} numberOfLines={1}>
-              {item.delivery_address?.startsWith('PICKUP:') ? 'Pickup Order' : item.delivery_address}
+              {isPickup ? 'Pickup Order' : item.delivery_address}
             </Text>
           </View>
           {item.distance_km ? (
@@ -170,9 +292,22 @@ export default function RiderDeliveriesScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Confirm Delivery CTA (only for in-transit delivery orders) */}
+        {canConfirmDelivery ? (
+          <Pressable
+            onPress={() => openPinModal(item)}
+            style={({ pressed }) => [styles.confirmDeliveryBtn, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}
+          >
+            <MaterialIcons name="verified-user" size={18} color="#FFF" />
+            <Text style={styles.confirmDeliveryBtnText}>Confirm Delivery with PIN</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   };
+
+  const currentPin = pinDigits.join('');
 
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
@@ -213,7 +348,7 @@ export default function RiderDeliveriesScreen() {
         <FlashList
           data={filtered}
           keyExtractor={item => item.id}
-          estimatedItemSize={200}
+          estimatedItemSize={220}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 16 }}
           renderItem={renderDelivery}
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
@@ -234,6 +369,89 @@ export default function RiderDeliveriesScreen() {
           }
         />
       )}
+
+      {/* PIN Verification Modal */}
+      <Modal visible={pinModalOpen} transparent animationType="fade" onRequestClose={closePinModal}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalIconWrap}>
+                <MaterialIcons name="verified-user" size={28} color="#10B981" />
+              </View>
+              <Pressable onPress={closePinModal} style={styles.modalCloseBtn}>
+                <MaterialIcons name="close" size={22} color="#9CA3AF" />
+              </Pressable>
+            </View>
+
+            <Text style={styles.modalTitle}>Confirm Delivery</Text>
+            <Text style={styles.modalSubtitle}>
+              Ask <Text style={{ color: '#FFF', fontWeight: '700' }}>{pinTargetOrder?.customer_name || 'the customer'}</Text> for their 4-digit delivery PIN and enter it below.
+            </Text>
+
+            {pinTargetOrder?.order_number ? (
+              <View style={styles.orderRefRow}>
+                <MaterialIcons name="receipt-long" size={14} color="#6B7280" />
+                <Text style={styles.orderRefText}>Order {pinTargetOrder.order_number}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.pinInputRow}>
+              {pinDigits.map((digit, i) => (
+                <TextInput
+                  key={i}
+                  ref={ref => { pinInputs.current[i] = ref; }}
+                  style={[styles.pinInputBox, digit ? styles.pinInputBoxFilled : null, pinError ? styles.pinInputBoxError : null]}
+                  value={digit}
+                  onChangeText={val => handlePinDigitChange(i, val)}
+                  onKeyPress={({ nativeEvent }) => handlePinKeyPress(i, nativeEvent.key)}
+                  keyboardType="number-pad"
+                  maxLength={1}
+                  textAlign="center"
+                  selectionColor="#10B981"
+                  autoFocus={i === 0}
+                />
+              ))}
+            </View>
+
+            {pinError ? (
+              <View style={styles.pinErrorRow}>
+                <MaterialIcons name="error-outline" size={14} color="#EF4444" />
+                <Text style={styles.pinErrorText}>{pinError}</Text>
+              </View>
+            ) : (
+              <Text style={styles.pinHelperText}>
+                The PIN was shared with the customer at checkout. Do not confirm before handing over the food.
+              </Text>
+            )}
+
+            <Pressable
+              onPress={handleConfirmDelivery}
+              disabled={confirmingDelivery || currentPin.length !== 4}
+              style={({ pressed }) => [
+                styles.confirmBtn,
+                (confirmingDelivery || currentPin.length !== 4) && { opacity: 0.5 },
+                pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+              ]}
+            >
+              {confirmingDelivery ? (
+                <ActivityIndicator size="small" color="#FFF" />
+              ) : (
+                <>
+                  <MaterialIcons name="check-circle" size={20} color="#FFF" />
+                  <Text style={styles.confirmBtnText}>Mark as Delivered</Text>
+                </>
+              )}
+            </Pressable>
+
+            <Pressable onPress={closePinModal} disabled={confirmingDelivery} style={styles.cancelBtn}>
+              <Text style={styles.cancelBtnText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -271,4 +489,110 @@ const styles = StyleSheet.create({
   emptyIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center', marginBottom: 14, borderWidth: 1, borderColor: '#2A2A2A' },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: '#FFF', marginBottom: 6 },
   emptySub: { fontSize: 13, color: '#6B7280', textAlign: 'center', lineHeight: 19, paddingHorizontal: 32 },
+
+  // Confirm delivery button
+  confirmDeliveryBtn: {
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#10B981',
+  },
+  confirmDeliveryBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: 'rgba(16,185,129,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#111111',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: '#FFF', marginBottom: 8 },
+  modalSubtitle: { fontSize: 14, color: '#9CA3AF', lineHeight: 20, marginBottom: 12 },
+  orderRefRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#111111',
+    alignSelf: 'flex-start',
+    marginBottom: 20,
+  },
+  orderRefText: { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
+  pinInputRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 12,
+  },
+  pinInputBox: {
+    flex: 1,
+    height: 64,
+    borderRadius: 14,
+    backgroundColor: '#111111',
+    borderWidth: 2,
+    borderColor: '#2A2A2A',
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#FFF',
+  },
+  pinInputBoxFilled: { borderColor: '#10B981' },
+  pinInputBoxError: { borderColor: '#EF4444' },
+  pinErrorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 20 },
+  pinErrorText: { flex: 1, fontSize: 13, color: '#EF4444', fontWeight: '500' },
+  pinHelperText: { fontSize: 12, color: '#6B7280', lineHeight: 17, marginBottom: 20 },
+  confirmBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 54,
+    borderRadius: 14,
+    backgroundColor: '#10B981',
+  },
+  confirmBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  cancelBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    paddingVertical: 12,
+  },
+  cancelBtnText: { fontSize: 14, fontWeight: '600', color: '#9CA3AF' },
 });
