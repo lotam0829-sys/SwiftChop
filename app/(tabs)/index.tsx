@@ -9,6 +9,7 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { theme } from '../../constants/theme';
 import { useApp } from '../../contexts/AppContext';
+import { useAlert } from '@/template';
 import { foodCategories } from '../../services/mockData';
 import { getImage } from '../../constants/images';
 import { DbRestaurant, DbMenuItem } from '../../services/supabaseData';
@@ -19,12 +20,14 @@ import { isBogoActive } from '../../constants/timeUtils';
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { userProfile, restaurants, loadingRestaurants, cartCount, userLocation, requestLocation, favoriteRestaurants, isFavorite, toggleFavorite, allMenuItems } = useApp();
+  const { userProfile, restaurants, loadingRestaurants, cartCount, userLocation, requestLocation, favoriteRestaurants, isFavorite, toggleFavorite, allMenuItems, updateProfile } = useApp();
+  const { showAlert } = useAlert();
   const [activeCategory, setActiveCategory] = useState('all');
   const [locationName, setLocationName] = useState<string | null>(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [showAddressPicker, setShowAddressPicker] = useState(false);
   const [isAtLocation, setIsAtLocation] = useState(true);
+  const [savingAddress, setSavingAddress] = useState(false);
 
   // Reverse geocode user location for display
   useEffect(() => {
@@ -167,8 +170,36 @@ export default function HomeScreen() {
 
   const handleRefreshLocation = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await requestLocation();
-  }, [requestLocation]);
+    setLoadingLocation(true);
+    const result = await requestLocation();
+    setLoadingLocation(false);
+    if (result.granted) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowAddressPicker(false);
+    } else {
+      showAlert(
+        'Location Permission Needed',
+        result.error || 'Enable location access to see nearby restaurants and accurate delivery times.',
+        [{ text: 'OK', style: 'default' }]
+      );
+    }
+  }, [requestLocation, showAlert]);
+
+  const handleSelectAddress = useCallback(async (addressValue: string) => {
+    Haptics.selectionAsync();
+    if (addressValue && addressValue !== userProfile?.address) {
+      setSavingAddress(true);
+      try {
+        await updateProfile({ address: addressValue });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (err) {
+        console.log('Save address error:', err);
+      } finally {
+        setSavingAddress(false);
+      }
+    }
+    setShowAddressPicker(false);
+  }, [userProfile?.address, updateProfile]);
 
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
@@ -497,27 +528,41 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            <Pressable onPress={handleRefreshLocation} style={styles.useLocationBtn}>
-              <MaterialIcons name="my-location" size={20} color={theme.primary} />
-              <Text style={styles.useLocationText}>Use current location</Text>
+            <Pressable onPress={handleRefreshLocation} disabled={loadingLocation} style={[styles.useLocationBtn, loadingLocation && { opacity: 0.6 }]}>
+              {loadingLocation ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <MaterialIcons name="my-location" size={20} color={theme.primary} />
+              )}
+              <Text style={styles.useLocationText}>{loadingLocation ? 'Detecting location...' : 'Use current location'}</Text>
             </Pressable>
 
-            {savedAddresses.map((addr, idx) => (
-              <Pressable key={idx} onPress={() => setShowAddressPicker(false)} style={styles.addressItem}>
-                <View style={styles.addressIcon}>
-                  <MaterialIcons name={addr.label === 'Current Location' ? 'gps-fixed' : 'home'} size={20} color={theme.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.addressLabel}>{addr.label}</Text>
-                  <Text style={styles.addressValue} numberOfLines={2}>{addr.value}</Text>
-                </View>
-              </Pressable>
-            ))}
+            {savedAddresses.map((addr, idx) => {
+              const isActive = addr.value === userProfile?.address;
+              return (
+                <Pressable key={idx} onPress={() => handleSelectAddress(addr.value)} disabled={savingAddress} style={[styles.addressItem, savingAddress && { opacity: 0.6 }]}>
+                  <View style={styles.addressIcon}>
+                    <MaterialIcons name={addr.label === 'Current Location' ? 'gps-fixed' : 'home'} size={20} color={theme.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.addressLabel}>{addr.label}</Text>
+                    <Text style={styles.addressValue} numberOfLines={2}>{addr.value}</Text>
+                  </View>
+                  {isActive ? (
+                    <View style={styles.activeAddressBadge}>
+                      <MaterialIcons name="check-circle" size={20} color={theme.success} />
+                    </View>
+                  ) : (
+                    <MaterialIcons name="chevron-right" size={20} color={theme.textMuted} />
+                  )}
+                </Pressable>
+              );
+            })}
 
-            {savedAddresses.length === 0 ? (
+            {savedAddresses.length === 0 && !loadingLocation ? (
               <View style={{ alignItems: 'center', paddingVertical: 24 }}>
                 <MaterialIcons name="location-off" size={36} color={theme.textMuted} />
-                <Text style={{ fontSize: 14, color: theme.textMuted, marginTop: 8 }}>No saved addresses. Enable location to get started.</Text>
+                <Text style={{ fontSize: 14, color: theme.textMuted, marginTop: 8, textAlign: 'center', paddingHorizontal: 16 }}>No saved addresses yet. Tap "Use current location" above to detect where you are.</Text>
               </View>
             ) : null}
           </View>
@@ -617,4 +662,5 @@ const styles = StyleSheet.create({
   addressIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },
   addressLabel: { fontSize: 14, fontWeight: '600', color: theme.textPrimary },
   addressValue: { fontSize: 13, color: theme.textSecondary, marginTop: 2 },
+  activeAddressBadge: { marginLeft: 4 },
 });

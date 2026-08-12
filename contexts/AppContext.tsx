@@ -74,7 +74,7 @@ interface AppContextType {
   cancelOrder: (orderId: string) => Promise<boolean>;
 
   userLocation: { latitude: number; longitude: number } | null;
-  requestLocation: () => Promise<void>;
+  requestLocation: () => Promise<{ granted: boolean; error?: string }>;
 
   // Push notifications
   pushToken: string | null;
@@ -551,15 +551,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [restaurants, favoriteIds]
   );
 
-  const requestLocation = async () => {
+  const requestLocation = async (): Promise<{ granted: boolean; error?: string }> => {
     try {
-      const { status } = await Location.getForegroundPermissionsAsync();
+      let { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        const { status: newStatus } = await Location.requestForegroundPermissionsAsync();
+        status = newStatus;
+      }
       if (status === 'granted') {
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+        return { granted: true };
       }
-    } catch (err) {
+      return { granted: false, error: 'Location permission was denied. Enable it in Settings to see nearby restaurants and accurate delivery times.' };
+    } catch (err: any) {
       console.log('Location fetch error:', err);
+      return { granted: false, error: err?.message || 'Could not fetch your location. Please try again.' };
     }
   };
 
