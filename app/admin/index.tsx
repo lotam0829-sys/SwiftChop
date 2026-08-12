@@ -12,10 +12,11 @@ import {
   approveApplication,
   rejectApplication,
   getSignedDocumentUrl,
-  PendingApplication,
 } from '../../services/supabaseData';
+import type { PendingApplication } from '../../services/supabaseData';
 
 type Tab = 'restaurants' | 'riders' | 'approved';
+type RejectModalState = { open: boolean; user: PendingApplication | null };
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -30,13 +31,12 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [rejectModal, setRejectModal] = useState<{ open: boolean; user: PendingApplication | null }>({ open: false, user: null });
+  const [rejectModal, setRejectModal] = useState<RejectModalState>({ open: false, user: null });
   const [rejectReason, setRejectReason] = useState('');
-  const [detailsExpanded, setDetailsExpanded] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<string[]>([]);
 
   const isAdmin = !!userProfile?.is_admin;
 
-  // Guard: only admins may view this page
   useEffect(() => {
     if (userProfile && !isAdmin) {
       router.replace('/');
@@ -77,17 +77,15 @@ export default function AdminDashboard() {
           text: 'Approve',
           onPress: async () => {
             setProcessingId(user.id);
-            const { error, subaccount_created } = await approveApplication(user.id);
+            const result = await approveApplication(user.id);
             setProcessingId(null);
-            if (error) {
-              showAlert('Approval Failed', error);
+            if (result.error) {
+              showAlert('Approval Failed', result.error);
               return;
             }
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            showAlert(
-              'Approved',
-              `${user.username || user.email} is now live on the platform.${subaccount_created ? '\n\nPaystack payout account created successfully.' : ''}`
-            );
+            const extra = result.subaccount_created ? '\n\nPaystack payout account created successfully.' : '';
+            showAlert('Approved', `${user.username || user.email} is now live on the platform.${extra}`);
             loadData();
           },
         },
@@ -101,6 +99,11 @@ export default function AdminDashboard() {
     setRejectReason('');
   };
 
+  const closeRejectModal = () => {
+    setRejectModal({ open: false, user: null });
+    setRejectReason('');
+  };
+
   const handleReject = async () => {
     if (!rejectModal.user) return;
     if (!rejectReason.trim() || rejectReason.trim().length < 8) {
@@ -108,12 +111,11 @@ export default function AdminDashboard() {
       return;
     }
     setProcessingId(rejectModal.user.id);
-    const { error } = await rejectApplication(rejectModal.user.id, rejectReason.trim());
+    const result = await rejectApplication(rejectModal.user.id, rejectReason.trim());
     setProcessingId(null);
-    setRejectModal({ open: false, user: null });
-    setRejectReason('');
-    if (error) {
-      showAlert('Error', error);
+    closeRejectModal();
+    if (result.error) {
+      showAlert('Error', result.error);
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -137,11 +139,11 @@ export default function AdminDashboard() {
 
   const toggleExpand = (id: string) => {
     Haptics.selectionAsync();
-    setDetailsExpanded(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    setExpandedIds((prev) => {
+      if (prev.indexOf(id) >= 0) {
+        return prev.filter((x) => x !== id);
+      }
+      return prev.concat(id);
     });
   };
 
@@ -154,7 +156,6 @@ export default function AdminDashboard() {
   }
 
   const currentList = tab === 'restaurants' ? pendingRestaurants : tab === 'riders' ? pendingRiders : approved;
-  const tabCount = tab === 'restaurants' ? pendingRestaurants.length : tab === 'riders' ? pendingRiders.length : approved.length;
 
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
@@ -173,7 +174,7 @@ export default function AdminDashboard() {
       </View>
 
       {/* Stats */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statsRow} contentContainerStyle={{ paddingHorizontal: 16, gap: 10, paddingVertical: 12 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statsRow} contentContainerStyle={styles.statsContent}>
         <View style={[styles.statCard, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
           <View style={[styles.statIcon, { backgroundColor: '#FDE68A' }]}>
             <MaterialIcons name="storefront" size={18} color="#B45309" />
@@ -199,13 +200,21 @@ export default function AdminDashboard() {
 
       {/* Tabs */}
       <View style={styles.tabsRow}>
-        {(['restaurants', 'riders', 'approved'] as Tab[]).map(t => (
-          <Pressable key={t} onPress={() => { Haptics.selectionAsync(); setTab(t); }} style={[styles.tabBtn, tab === t && styles.tabBtnActive]}>
-            <Text style={[styles.tabBtnText, tab === t && { color: '#FFF' }]}>
-              {t === 'restaurants' ? `Restaurants (${pendingRestaurants.length})` : t === 'riders' ? `Riders (${pendingRiders.length})` : `Approved (${approved.length})`}
-            </Text>
-          </Pressable>
-        ))}
+        <Pressable onPress={() => { Haptics.selectionAsync(); setTab('restaurants'); }} style={[styles.tabBtn, tab === 'restaurants' && styles.tabBtnActive]}>
+          <Text style={[styles.tabBtnText, tab === 'restaurants' && styles.tabBtnTextActive]}>
+            {`Restaurants (${pendingRestaurants.length})`}
+          </Text>
+        </Pressable>
+        <Pressable onPress={() => { Haptics.selectionAsync(); setTab('riders'); }} style={[styles.tabBtn, tab === 'riders' && styles.tabBtnActive]}>
+          <Text style={[styles.tabBtnText, tab === 'riders' && styles.tabBtnTextActive]}>
+            {`Riders (${pendingRiders.length})`}
+          </Text>
+        </Pressable>
+        <Pressable onPress={() => { Haptics.selectionAsync(); setTab('approved'); }} style={[styles.tabBtn, tab === 'approved' && styles.tabBtnActive]}>
+          <Text style={[styles.tabBtnText, tab === 'approved' && styles.tabBtnTextActive]}>
+            {`Approved (${approved.length})`}
+          </Text>
+        </Pressable>
       </View>
 
       {/* Body */}
@@ -233,152 +242,24 @@ export default function AdminDashboard() {
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 12 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={[theme.primary]} tintColor={theme.primary} />}
         >
-          {currentList.map(user => {
-            const isExpanded = detailsExpanded.has(user.id);
-            const isProcessing = processingId === user.id;
-            const isRestaurant = user.role === 'restaurant';
-            const iconColor = isRestaurant ? '#7C3AED' : '#059669';
-            const iconBg = isRestaurant ? '#EDE9FE' : '#ECFDF5';
-
-            const maskedAccount = user.bank_account_number
-              ? `${user.bank_account_number.slice(0, 3)}****${user.bank_account_number.slice(-2)}`
-              : null;
-
-            return (
-              <View key={user.id} style={styles.card}>
-                {/* Header row */}
-                <View style={styles.cardHeader}>
-                  <View style={[styles.cardAvatar, { backgroundColor: iconBg }]}>
-                    <MaterialIcons name={isRestaurant ? 'storefront' : 'delivery-dining'} size={22} color={iconColor} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cardName} numberOfLines={1}>
-                      {isRestaurant ? (user.restaurant_name || user.username || 'Unnamed Restaurant') : (user.username || 'Unnamed Rider')}
-                    </Text>
-                    <Text style={styles.cardEmail} numberOfLines={1}>{user.email}</Text>
-                  </View>
-                  {tab === 'approved' ? (
-                    <View style={styles.approvedBadge}>
-                      <MaterialIcons name="verified" size={12} color={theme.success} />
-                      <Text style={styles.approvedBadgeText}>Approved</Text>
-                    </View>
-                  ) : (
-                    <View style={styles.pendingBadge}>
-                      <MaterialIcons name="hourglass-top" size={12} color="#B45309" />
-                      <Text style={styles.pendingBadgeText}>Pending</Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Quick meta chips */}
-                <View style={styles.metaRow}>
-                  {user.phone ? (
-                    <View style={styles.metaChip}>
-                      <MaterialIcons name="phone" size={12} color={theme.textSecondary} />
-                      <Text style={styles.metaChipText}>{user.phone}</Text>
-                    </View>
-                  ) : null}
-                  {isRestaurant && user.restaurant_cuisine ? (
-                    <View style={styles.metaChip}>
-                      <MaterialIcons name="restaurant-menu" size={12} color={theme.textSecondary} />
-                      <Text style={styles.metaChipText}>{user.restaurant_cuisine}</Text>
-                    </View>
-                  ) : null}
-                  {!isRestaurant && user.vehicle_type ? (
-                    <View style={styles.metaChip}>
-                      <MaterialIcons name="two-wheeler" size={12} color={theme.textSecondary} />
-                      <Text style={styles.metaChipText}>{user.vehicle_type}</Text>
-                    </View>
-                  ) : null}
-                  {user.paystack_subaccount_code ? (
-                    <View style={[styles.metaChip, { backgroundColor: theme.successLight }]}>
-                      <MaterialIcons name="account-balance-wallet" size={12} color={theme.success} />
-                      <Text style={[styles.metaChipText, { color: theme.success }]}>Payout ready</Text>
-                    </View>
-                  ) : null}
-                </View>
-
-                {/* Toggle details */}
-                <Pressable onPress={() => toggleExpand(user.id)} style={styles.expandBtn}>
-                  <Text style={styles.expandBtnText}>{isExpanded ? 'Hide details' : 'View full details'}</Text>
-                  <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={18} color={theme.primary} />
-                </Pressable>
-
-                {isExpanded ? (
-                  <View style={styles.detailsWrap}>
-                    {isRestaurant ? (
-                      <>
-                        <DetailRow icon="location-on" label="Address" value={user.restaurant_address || 'Not provided'} />
-                        <DetailRow icon="description" label="Description" value={user.restaurant_description || 'Not provided'} />
-                        <DetailRow icon="attach-money" label="Min Order" value={user.restaurant_min_order ? `\u20A6${user.restaurant_min_order.toLocaleString()}` : 'Not set'} />
-                        <DetailRow icon="access-time" label="Delivery Time" value={user.restaurant_delivery_time || 'Not set'} />
-                      </>
-                    ) : (
-                      <DetailRow icon="badge" label={user.id_type === 'passport' ? 'Passport' : 'NIN'} value={user.id_number || 'Not provided'} />
-                    )}
-                    <DetailRow
-                      icon="account-balance"
-                      label="Bank"
-                      value={user.bank_name ? `${user.bank_name}${maskedAccount ? ` \u00B7 ${maskedAccount}` : ''}` : 'No bank on file'}
-                    />
-                    <DetailRow icon="person" label="Account Name" value={user.bank_account_name || 'Not verified'} />
-
-                    {/* Documents */}
-                    {(isRestaurant && user.business_certificate_url) || (!isRestaurant && user.id_document_url) ? (
-                      <View style={styles.docsRow}>
-                        {isRestaurant && user.business_certificate_url ? (
-                          <Pressable onPress={() => handleViewDocument(user, 'certificate')} style={styles.docBtn}>
-                            <MaterialIcons name="picture-as-pdf" size={16} color="#EF4444" />
-                            <Text style={styles.docBtnText}>View CAC Certificate</Text>
-                            <MaterialIcons name="open-in-new" size={14} color={theme.textMuted} />
-                          </Pressable>
-                        ) : null}
-                        {!isRestaurant && user.id_document_url ? (
-                          <Pressable onPress={() => handleViewDocument(user, 'id')} style={styles.docBtn}>
-                            <MaterialIcons name="badge" size={16} color="#2563EB" />
-                            <Text style={styles.docBtnText}>View ID Document</Text>
-                            <MaterialIcons name="open-in-new" size={14} color={theme.textMuted} />
-                          </Pressable>
-                        ) : null}
-                      </View>
-                    ) : null}
-
-                    {user.rejection_reason ? (
-                      <View style={styles.rejectionBox}>
-                        <Text style={styles.rejectionLabel}>Previous rejection reason</Text>
-                        <Text style={styles.rejectionText}>{user.rejection_reason}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                ) : null}
-
-                {/* Actions */}
-                {tab !== 'approved' ? (
-                  <View style={styles.actionsRow}>
-                    <Pressable onPress={() => openRejectModal(user)} style={[styles.rejectBtn, isProcessing && { opacity: 0.5 }]} disabled={isProcessing}>
-                      <MaterialIcons name="close" size={18} color="#EF4444" />
-                      <Text style={styles.rejectBtnText}>Reject</Text>
-                    </Pressable>
-                    <Pressable onPress={() => handleApprove(user)} style={[styles.approveBtn, isProcessing && { opacity: 0.7 }]} disabled={isProcessing}>
-                      {isProcessing ? (
-                        <ActivityIndicator size="small" color="#FFF" />
-                      ) : (
-                        <>
-                          <MaterialIcons name="check" size={18} color="#FFF" />
-                          <Text style={styles.approveBtnText}>Approve</Text>
-                        </>
-                      )}
-                    </Pressable>
-                  </View>
-                ) : null}
-              </View>
-            );
-          })}
+          {currentList.map((user) => (
+            <ApplicationCard
+              key={user.id}
+              user={user}
+              tab={tab}
+              isExpanded={expandedIds.indexOf(user.id) >= 0}
+              isProcessing={processingId === user.id}
+              onToggleExpand={toggleExpand}
+              onApprove={handleApprove}
+              onReject={openRejectModal}
+              onViewDocument={handleViewDocument}
+            />
+          ))}
         </ScrollView>
       )}
 
       {/* Reject Reason Modal */}
-      <Modal visible={rejectModal.open} transparent animationType="slide" onRequestClose={() => setRejectModal({ open: false, user: null })}>
+      <Modal visible={rejectModal.open} transparent animationType="slide" onRequestClose={closeRejectModal}>
         <View style={styles.modalOverlay}>
           <View style={[styles.rejectModalContent, { paddingBottom: insets.bottom + 16 }]}>
             <View style={styles.modalHandle} />
@@ -396,7 +277,7 @@ export default function AdminDashboard() {
               autoFocus
             />
             <View style={styles.modalActions}>
-              <Pressable onPress={() => { setRejectModal({ open: false, user: null }); setRejectReason(''); }} style={[styles.modalBtn, { backgroundColor: theme.backgroundSecondary }]}>
+              <Pressable onPress={closeRejectModal} style={[styles.modalBtn, { backgroundColor: theme.backgroundSecondary }]}>
                 <Text style={[styles.modalBtnText, { color: theme.textPrimary }]}>Cancel</Text>
               </Pressable>
               <Pressable onPress={handleReject} style={[styles.modalBtn, { backgroundColor: '#EF4444', flex: 2 }]}>
@@ -410,15 +291,167 @@ export default function AdminDashboard() {
   );
 }
 
-function DetailRow({ icon, label, value, valueColor }: { icon: any; label: string; value: string; valueColor?: string }) {
+// ==== Sub-components ====
+
+type ApplicationCardProps = {
+  user: PendingApplication;
+  tab: Tab;
+  isExpanded: boolean;
+  isProcessing: boolean;
+  onToggleExpand: (id: string) => void;
+  onApprove: (user: PendingApplication) => void;
+  onReject: (user: PendingApplication) => void;
+  onViewDocument: (user: PendingApplication, docType: 'certificate' | 'id') => void;
+};
+
+function ApplicationCard(props: ApplicationCardProps) {
+  const { user, tab, isExpanded, isProcessing, onToggleExpand, onApprove, onReject, onViewDocument } = props;
+  const isRestaurant = user.role === 'restaurant';
+  const iconColor = isRestaurant ? '#7C3AED' : '#059669';
+  const iconBg = isRestaurant ? '#EDE9FE' : '#ECFDF5';
+  const acct = user.bank_account_number || '';
+  const maskedAccount = acct.length >= 5 ? `${acct.slice(0, 3)}****${acct.slice(-2)}` : null;
+
+  return (
+    <View style={styles.card}>
+      {/* Header row */}
+      <View style={styles.cardHeader}>
+        <View style={[styles.cardAvatar, { backgroundColor: iconBg }]}>
+          <MaterialIcons name={isRestaurant ? 'storefront' : 'delivery-dining'} size={22} color={iconColor} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardName} numberOfLines={1}>
+            {isRestaurant ? (user.restaurant_name || user.username || 'Unnamed Restaurant') : (user.username || 'Unnamed Rider')}
+          </Text>
+          <Text style={styles.cardEmail} numberOfLines={1}>{user.email}</Text>
+        </View>
+        {tab === 'approved' ? (
+          <View style={styles.approvedBadge}>
+            <MaterialIcons name="verified" size={12} color={theme.success} />
+            <Text style={styles.approvedBadgeText}>Approved</Text>
+          </View>
+        ) : (
+          <View style={styles.pendingBadge}>
+            <MaterialIcons name="hourglass-top" size={12} color="#B45309" />
+            <Text style={styles.pendingBadgeText}>Pending</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Quick meta chips */}
+      <View style={styles.metaRow}>
+        {user.phone ? (
+          <View style={styles.metaChip}>
+            <MaterialIcons name="phone" size={12} color={theme.textSecondary} />
+            <Text style={styles.metaChipText}>{user.phone}</Text>
+          </View>
+        ) : null}
+        {isRestaurant && user.restaurant_cuisine ? (
+          <View style={styles.metaChip}>
+            <MaterialIcons name="restaurant-menu" size={12} color={theme.textSecondary} />
+            <Text style={styles.metaChipText}>{user.restaurant_cuisine}</Text>
+          </View>
+        ) : null}
+        {!isRestaurant && user.vehicle_type ? (
+          <View style={styles.metaChip}>
+            <MaterialIcons name="two-wheeler" size={12} color={theme.textSecondary} />
+            <Text style={styles.metaChipText}>{user.vehicle_type}</Text>
+          </View>
+        ) : null}
+        {user.paystack_subaccount_code ? (
+          <View style={[styles.metaChip, { backgroundColor: theme.successLight }]}>
+            <MaterialIcons name="account-balance-wallet" size={12} color={theme.success} />
+            <Text style={[styles.metaChipText, { color: theme.success }]}>Payout ready</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Toggle details */}
+      <Pressable onPress={() => onToggleExpand(user.id)} style={styles.expandBtn}>
+        <Text style={styles.expandBtnText}>{isExpanded ? 'Hide details' : 'View full details'}</Text>
+        <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={18} color={theme.primary} />
+      </Pressable>
+
+      {isExpanded ? (
+        <View style={styles.detailsWrap}>
+          {isRestaurant ? (
+            <>
+              <DetailRow icon="location-on" label="Address" value={user.restaurant_address || 'Not provided'} />
+              <DetailRow icon="description" label="Description" value={user.restaurant_description || 'Not provided'} />
+              <DetailRow icon="attach-money" label="Min Order" value={user.restaurant_min_order ? `\u20A6${user.restaurant_min_order.toLocaleString()}` : 'Not set'} />
+              <DetailRow icon="access-time" label="Delivery Time" value={user.restaurant_delivery_time || 'Not set'} />
+            </>
+          ) : (
+            <DetailRow icon="badge" label={user.id_type === 'passport' ? 'Passport' : 'NIN'} value={user.id_number || 'Not provided'} />
+          )}
+          <DetailRow
+            icon="account-balance"
+            label="Bank"
+            value={user.bank_name ? `${user.bank_name}${maskedAccount ? ` \u00B7 ${maskedAccount}` : ''}` : 'No bank on file'}
+          />
+          <DetailRow icon="person" label="Account Name" value={user.bank_account_name || 'Not verified'} />
+
+          {(isRestaurant && user.business_certificate_url) || (!isRestaurant && user.id_document_url) ? (
+            <View style={styles.docsRow}>
+              {isRestaurant && user.business_certificate_url ? (
+                <Pressable onPress={() => onViewDocument(user, 'certificate')} style={styles.docBtn}>
+                  <MaterialIcons name="picture-as-pdf" size={16} color="#EF4444" />
+                  <Text style={styles.docBtnText}>View CAC Certificate</Text>
+                  <MaterialIcons name="open-in-new" size={14} color={theme.textMuted} />
+                </Pressable>
+              ) : null}
+              {!isRestaurant && user.id_document_url ? (
+                <Pressable onPress={() => onViewDocument(user, 'id')} style={styles.docBtn}>
+                  <MaterialIcons name="badge" size={16} color="#2563EB" />
+                  <Text style={styles.docBtnText}>View ID Document</Text>
+                  <MaterialIcons name="open-in-new" size={14} color={theme.textMuted} />
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+
+          {user.rejection_reason ? (
+            <View style={styles.rejectionBox}>
+              <Text style={styles.rejectionLabel}>Previous rejection reason</Text>
+              <Text style={styles.rejectionText}>{user.rejection_reason}</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {tab !== 'approved' ? (
+        <View style={styles.actionsRow}>
+          <Pressable onPress={() => onReject(user)} style={[styles.rejectBtn, isProcessing && styles.disabledBtn]} disabled={isProcessing}>
+            <MaterialIcons name="close" size={18} color="#EF4444" />
+            <Text style={styles.rejectBtnText}>Reject</Text>
+          </Pressable>
+          <Pressable onPress={() => onApprove(user)} style={[styles.approveBtn, isProcessing && styles.processingBtn]} disabled={isProcessing}>
+            {isProcessing ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <>
+                <MaterialIcons name="check" size={18} color="#FFF" />
+                <Text style={styles.approveBtnText}>Approve</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+type DetailRowProps = { icon: any; label: string; value: string };
+
+function DetailRow(props: DetailRowProps) {
   return (
     <View style={styles.detailRow}>
       <View style={styles.detailIcon}>
-        <MaterialIcons name={icon} size={16} color={theme.textMuted} />
+        <MaterialIcons name={props.icon} size={16} color={theme.textMuted} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={styles.detailLabel}>{label}</Text>
-        <Text style={[styles.detailValue, valueColor ? { color: valueColor } : null]}>{value}</Text>
+        <Text style={styles.detailLabel}>{props.label}</Text>
+        <Text style={styles.detailValue}>{props.value}</Text>
       </View>
     </View>
   );
@@ -442,6 +475,7 @@ const styles = StyleSheet.create({
   headerSubtitle: { fontSize: 12, color: theme.textSecondary, marginTop: 1 },
 
   statsRow: { flexGrow: 0 },
+  statsContent: { paddingHorizontal: 16, gap: 10, paddingVertical: 12 },
   statCard: { padding: 14, borderRadius: 14, borderWidth: 1, minWidth: 150, gap: 2 },
   statIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
   statValue: { fontSize: 22, fontWeight: '700', color: theme.textPrimary },
@@ -451,6 +485,7 @@ const styles = StyleSheet.create({
   tabBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, backgroundColor: theme.backgroundSecondary },
   tabBtnActive: { backgroundColor: theme.primary },
   tabBtnText: { fontSize: 13, fontWeight: '600', color: theme.textSecondary },
+  tabBtnTextActive: { color: '#FFF' },
 
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, minHeight: 300 },
   loadingText: { fontSize: 14, color: theme.textSecondary, marginTop: 12 },
@@ -494,8 +529,9 @@ const styles = StyleSheet.create({
   rejectBtnText: { fontSize: 14, fontWeight: '700', color: '#EF4444' },
   approveBtn: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.success },
   approveBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+  disabledBtn: { opacity: 0.5 },
+  processingBtn: { opacity: 0.7 },
 
-  // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   rejectModalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingTop: 12 },
   modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: theme.border, alignSelf: 'center', marginBottom: 12 },
