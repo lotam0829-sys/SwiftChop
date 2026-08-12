@@ -23,6 +23,7 @@ export default function ProfileScreen() {
   };
 
   const totalSpent = customerOrders.reduce((s, o) => s + o.total, 0);
+  const isAdmin = !!userProfile?.is_admin;
 
   const menuItems: { icon: string; label: string; subtitle: string; route: string }[] = [
     { icon: 'person-outline', label: 'Edit Profile', subtitle: 'Name, email, phone', route: '/edit-profile' },
@@ -69,6 +70,27 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {isAdmin ? (
+          <Pressable
+            style={styles.adminCard}
+            onPress={() => { Haptics.selectionAsync(); router.push('/admin'); }}
+          >
+            <View style={styles.adminIconWrap}>
+              <MaterialIcons name="admin-panel-settings" size={26} color="#FFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.adminLabel}>Admin Dashboard</Text>
+                <View style={styles.adminBadge}>
+                  <Text style={styles.adminBadgeText}>ADMIN</Text>
+                </View>
+              </View>
+              <Text style={styles.adminSubtitle}>Review pending restaurant &amp; rider applications</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color="#FFF" />
+          </Pressable>
+        ) : null}
+
         <View style={styles.menuSection}>
           {menuItems.map((item, index) => (
             <Pressable key={index} style={styles.menuItem} onPress={() => { Haptics.selectionAsync(); router.push(item.route as any); }}>
@@ -106,6 +128,12 @@ const styles = StyleSheet.create({
   statCard: { flex: 1, backgroundColor: theme.primaryFaint, borderRadius: 14, padding: 16, alignItems: 'center' },
   statValue: { fontSize: 20, fontWeight: '700', color: theme.primary },
   statLabel: { fontSize: 12, color: theme.textSecondary, marginTop: 4, fontWeight: '500' },
+  adminCard: { flexDirection: 'row', alignItems: 'center', gap: 14, marginHorizontal: 16, marginTop: 24, padding: 16, borderRadius: 16, backgroundColor: '#7C3AED', ...theme.shadow.medium },
+  adminIconWrap: { width: 52, height: 52, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  adminLabel: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  adminBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.25)' },
+  adminBadgeText: { fontSize: 10, fontWeight: '800', color: '#FFF', letterSpacing: 0.5 },
+  adminSubtitle: { fontSize: 12, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
   menuSection: { marginTop: 28, marginHorizontal: 16 },
   menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.borderLight, gap: 14 },
   menuIconWrap: { width: 42, height: 42, borderRadius: 12, backgroundColor: theme.primaryFaint, alignItems: 'center', justifyContent: 'center' },

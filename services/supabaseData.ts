@@ -102,6 +102,30 @@ export interface DbUserProfile {
   avatar_url: string | null;
   push_token?: string | null;
   saved_cards?: SavedCard[];
+  is_admin?: boolean;
+  rejection_reason?: string | null;
+  approved_at?: string | null;
+  rejected_at?: string | null;
+}
+
+export interface PendingApplication extends DbUserProfile {
+  restaurant_address?: string | null;
+  restaurant_cuisine?: string | null;
+  restaurant_description?: string | null;
+  restaurant_min_order?: number | null;
+  restaurant_delivery_time?: string | null;
+  restaurant_image_key?: string | null;
+  bank_name?: string | null;
+  bank_code?: string | null;
+  bank_account_number?: string | null;
+  bank_account_name?: string | null;
+  business_certificate_url?: string | null;
+  id_document_url?: string | null;
+  id_type?: string | null;
+  id_number?: string | null;
+  vehicle_type?: string | null;
+  paystack_subaccount_code?: string | null;
+  created_at?: string;
 }
 
 export interface DbReview {
@@ -404,6 +428,101 @@ export async function fetchSavedCards(userId: string): Promise<{ data: SavedCard
     .single();
   if (error) return { data: [], error: error.message };
   return { data: Array.isArray(data?.saved_cards) ? data.saved_cards : [], error: null };
+}
+
+// ---- Admin ----
+
+/** Fetch all restaurant/rider applications, grouped by pending vs approved. Admin only. */
+export async function fetchAdminApplications(): Promise<{
+  pendingRestaurants: PendingApplication[];
+  pendingRiders: PendingApplication[];
+  approved: PendingApplication[];
+}> {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .in('role', ['restaurant', 'rider'])
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.log('fetchAdminApplications error:', error.message);
+    return { pendingRestaurants: [], pendingRiders: [], approved: [] };
+  }
+
+  const all = (data || []) as PendingApplication[];
+  return {
+    pendingRestaurants: all.filter(u => u.role === 'restaurant' && !u.is_approved),
+    pendingRiders: all.filter(u => u.role === 'rider' && !u.is_approved),
+    approved: all.filter(u => u.is_approved),
+  };
+}
+
+/** Approve an application and auto-create Paystack subaccount if bank details exist. */
+export async function approveApplication(userId: string): Promise<{ error: string | null; subaccount_created: boolean }> {
+  const { data: profile, error: fetchErr } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('id', userId)
+    .single();
+  if (fetchErr || !profile) return { error: fetchErr?.message || 'User not found', subaccount_created: false };
+
+  const { error: updateErr } = await supabase
+    .from('user_profiles')
+    .update({
+      is_approved: true,
+      approved_at: new Date().toISOString(),
+      rejection_reason: null,
+    })
+    .eq('id', userId);
+  if (updateErr) return { error: updateErr.message, subaccount_created: false };
+
+  // Auto-create Paystack subaccount for payouts if bank details exist and no subaccount yet
+  let subaccountCreated = false;
+  const p = profile as any;
+  if (p.bank_code && p.bank_account_number && !p.paystack_subaccount_code) {
+    const businessName = p.role === 'restaurant'
+      ? (p.restaurant_name || p.bank_account_name || p.username || 'Restaurant')
+      : (p.username || p.bank_account_name || 'Rider');
+    const { error: subErr } = await supabase.functions.invoke('paystack-create-subaccount', {
+      body: {
+        user_id: userId,
+        business_name: businessName,
+        bank_code: p.bank_code,
+        account_number: p.bank_account_number,
+        percentage_charge: 0,
+      },
+    });
+    if (subErr) {
+      console.log('Paystack subaccount creation warning on approval:', subErr);
+    } else {
+      subaccountCreated = true;
+    }
+  }
+
+  return { error: null, subaccount_created: subaccountCreated };
+}
+
+/** Reject an application with a reason. */
+export async function rejectApplication(userId: string, reason: string): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('user_profiles')
+    .update({
+      is_approved: false,
+      rejection_reason: reason,
+      rejected_at: new Date().toISOString(),
+    })
+    .eq('id', userId);
+  return { error: error?.message || null };
+}
+
+/** Generate a temporary signed URL for private storage documents. Admin only. */
+export async function getSignedDocumentUrl(bucket: string, path: string): Promise<string | null> {
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+  if (error) {
+    console.log('Signed URL error:', error.message);
+    return null;
+  }
+  return data?.signedUrl || null;
 }
 
 export async function removeSavedCard(userId: string, signature: string): Promise<{ error: string | null }> {

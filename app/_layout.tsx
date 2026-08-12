@@ -85,6 +85,7 @@ function RootNavigator() {
         <Stack.Screen name="order-tracking" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="onboarding" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="pending-approval" />
+        <Stack.Screen name="admin" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="restaurant-account" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerBackTitleVisible: false, headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
         <Stack.Screen name="restaurant-support" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerBackTitleVisible: false, headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
         <Stack.Screen name="restaurant-contact" options={{ animation: 'slide_from_right', headerShown: true, headerTitle: '', headerBackTitle: '', headerBackTitleVisible: false, headerTintColor: '#FFF', headerStyle: { backgroundColor: '#0D0D0D' } }} />
