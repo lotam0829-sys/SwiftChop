@@ -15,11 +15,13 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.swiftchopng.app",
       "entitlements": {
         "com.apple.developer.usernotifications.time-sensitive": true
       }
     },
     "android": {
+      "package": "com.swiftchopng.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo.jpeg",
         "backgroundColor": "#ffffff"
