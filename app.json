@@ -22,6 +22,7 @@
     },
     "android": {
       "package": "com.swiftchop.app",
+      "versionCode": 1787722307,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo.jpeg",
         "backgroundColor": "#ffffff"
