@@ -7,7 +7,7 @@
       "color": "#FF6B00",
       "androidMode": "default"
     },
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/app-icon.png",
     "scheme": "onspaceapp",
@@ -22,7 +22,7 @@
     },
     "android": {
       "package": "com.swiftchop.app",
-      "versionCode": 1787722307,
+      "versionCode": 1787722309,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/app-icon.png",
         "backgroundColor": "#ffffff"
