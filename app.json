@@ -3,13 +3,13 @@
     "name": "SwiftChop",
     "slug": "swiftchop",
     "notification": {
-      "icon": "./assets/images/logo.jpeg",
+      "icon": "./assets/images/app-icon.png",
       "color": "#FF6B00",
       "androidMode": "default"
     },
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/logo.jpeg",
+    "icon": "./assets/images/app-icon.png",
     "scheme": "onspaceapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -24,7 +24,7 @@
       "package": "com.swiftchop.app",
       "versionCode": 1787722307,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/logo.jpeg",
+        "foregroundImage": "./assets/images/app-icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true
@@ -32,21 +32,21 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/logo.jpeg"
+      "favicon": "./assets/images/app-icon.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/logo.jpeg",
+          "icon": "./assets/images/app-icon.png",
           "color": "#FF6B00"
         }
       ],
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/logo.jpeg",
+          "image": "./assets/images/app-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
