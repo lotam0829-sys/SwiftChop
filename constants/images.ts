@@ -1,3 +1,4 @@
+// Asset registry - v4 (cache-invalidated 2026-09-07 for AAB build)
 const imageMap: Record<string, any> = {
   heroJollof: require('../assets/images/hero-jollof.jpg'),
   foodSuya: require('../assets/images/food-suya.jpg'),
@@ -9,8 +10,8 @@ const imageMap: Record<string, any> = {
   foodMoimoi: require('../assets/images/food-moimoi.jpg'),
   emptyOrders: require('../assets/images/empty-orders.jpg'),
   pendingApproval: require('../assets/images/pending-approval.jpg'),
-  logo: require('../assets/images/swiftchop-mark.png'),
-  logoGreenAccent: require('../assets/images/swiftchop-mark.png'),
+  logo: require('../assets/branding/sc-mark.png'),
+  logoGreenAccent: require('../assets/branding/sc-mark.png'),
 };
 
 export const getImage = (key: string): any => imageMap[key] || imageMap.heroJollof;
